@@ -20,7 +20,9 @@ Controls:
 - `WASD` or arrow keys: move
 - Mouse / left click: aim and shoot
 - `Space`: shoot
+- `H`: open hack input
 - `Esc`: pause
+- `Enter`: confirm hack when hack input is open
 - `R`: retry from pause/game over
 - `M`: return to menu from pause/game over
 - `F11` or `Alt+Enter`: toggle fullscreen

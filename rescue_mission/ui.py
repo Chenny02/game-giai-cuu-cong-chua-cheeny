@@ -605,3 +605,20 @@ def draw_gameplay_hud(surface, assets, scene, next_upgrade_text, mouse_pos):
 
     draw_minimap(surface, assets, scene, pygame.Rect(config.SCREEN_WIDTH - 136, 14, 118, 118))
     draw_crosshair(surface, mouse_pos, scene.player.fire_timer <= 0)
+
+
+def draw_cheat_prompt(surface, assets, cheat_input):
+    card = pygame.Rect(config.SCREEN_WIDTH - 344, 142, 326, 108)
+    draw_glass_panel(surface, card)
+
+    title = assets.font_h2.render("Hack Console", True, config.COLOR_TEXT)
+    subtitle = assets.font_small.render("Nhap lenh va nhan Enter de kich hoat", True, config.COLOR_SUBTEXT)
+    surface.blit(title, (card.x + 18, card.y + 14))
+    surface.blit(subtitle, (card.x + 18, card.y + 42))
+
+    input_rect = pygame.Rect(card.x + 18, card.y + 68, card.width - 36, 24)
+    pygame.draw.rect(surface, (*config.COLOR_PANEL_ALT, 255), input_rect, border_radius=8)
+    pygame.draw.rect(surface, config.COLOR_ACCENT, input_rect, width=1, border_radius=8)
+    value = cheat_input if cheat_input else "_"
+    text = assets.font_small.render(f"> {value}", True, config.COLOR_TEXT)
+    surface.blit(text, (input_rect.x + 10, input_rect.y + 4))

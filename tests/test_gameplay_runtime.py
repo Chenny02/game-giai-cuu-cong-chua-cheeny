@@ -39,6 +39,15 @@ class GameplayRuntimeTests(unittest.TestCase):
     def make_key_event(self, char):
         return pygame.event.Event(pygame.KEYDOWN, key=ord(char), unicode=char)
 
+    def make_special_key_event(self, key, unicode=""):
+        return pygame.event.Event(pygame.KEYDOWN, key=key, unicode=unicode)
+
+    def submit_cheat_code(self, game, code):
+        game.handle_playing_event(self.make_special_key_event(pygame.K_h, unicode="h"))
+        for char in code:
+            game.handle_playing_event(self.make_key_event(char))
+        game.handle_playing_event(self.make_special_key_event(pygame.K_RETURN, unicode="\r"))
+
     def test_builds_all_six_levels(self):
         self.assertEqual(6, len(self.levels))
         self.assertFalse(self.make_scene(0).maze)
@@ -184,8 +193,7 @@ class GameplayRuntimeTests(unittest.TestCase):
         game.state = GameState.PLAYING
         game.scene = game.create_level_scene(0)
 
-        for char in "chenny":
-            game.handle_playing_event(self.make_key_event(char))
+        self.submit_cheat_code(game, "chenny")
 
         self.assertTrue(game.invincible_enabled)
         self.assertTrue(game.scene.player_invincible)
@@ -193,8 +201,7 @@ class GameplayRuntimeTests(unittest.TestCase):
         self.assertFalse(game.scene.player.take_damage(20, scene=game.scene))
         self.assertEqual(health_before, game.scene.player.health)
 
-        for char in "chenny":
-            game.handle_playing_event(self.make_key_event(char))
+        self.submit_cheat_code(game, "chenny")
 
         self.assertFalse(game.invincible_enabled)
         self.assertFalse(game.scene.player_invincible)
@@ -206,8 +213,7 @@ class GameplayRuntimeTests(unittest.TestCase):
         game.state = GameState.PLAYING
         game.scene = game.create_level_scene(0)
 
-        for char in "rabbit":
-            game.handle_playing_event(self.make_key_event(char))
+        self.submit_cheat_code(game, "rabbit")
 
         self.assertEqual("win", game.scene.result)
         self.assertTrue(game.scene.hostage.rescued)
@@ -221,8 +227,7 @@ class GameplayRuntimeTests(unittest.TestCase):
         game.state = GameState.PLAYING
         game.scene = game.create_level_scene(game.level_index)
 
-        for char in "rabbit":
-            game.handle_playing_event(self.make_key_event(char))
+        self.submit_cheat_code(game, "rabbit")
 
         self.assertEqual("win", game.scene.result)
         self.assertTrue(game.scene.hostage.rescued)
@@ -236,14 +241,50 @@ class GameplayRuntimeTests(unittest.TestCase):
         game.state = GameState.PLAYING
         game.scene = game.create_level_scene(0)
 
-        for char in "emyeutho":
-            game.handle_playing_event(self.make_key_event(char))
+        self.submit_cheat_code(game, "emyeutho")
 
         self.assertTrue(game.love_rabbit_enabled)
         self.assertIsNotNone(game.scene.love_rabbit)
         self.assertEqual(GameState.DIALOGUE, game.state)
         self.assertEqual("resume_current_level", game.dialogue_next_action)
         self.assertEqual("Thỏ tai đỏ", game.current_dialogue().speaker)
+
+    def test_typing_without_enter_does_not_activate_cheat(self):
+        game = Game()
+        game.state = GameState.PLAYING
+        game.scene = game.create_level_scene(0)
+
+        for char in "chenny":
+            game.handle_playing_event(self.make_key_event(char))
+
+        self.assertFalse(game.invincible_enabled)
+        self.assertTrue(game.cheat_prompt_active)
+        self.assertEqual("enny", game.cheat_input)
+
+    def test_invalid_cheat_code_shows_status_and_does_not_activate(self):
+        game = Game()
+        game.state = GameState.PLAYING
+        game.scene = game.create_level_scene(0)
+
+        self.submit_cheat_code(game, "abc")
+
+        self.assertFalse(game.invincible_enabled)
+        self.assertFalse(game.cheat_prompt_active)
+        self.assertEqual("", game.cheat_input)
+        self.assertEqual("Lệnh hack không hợp lệ.", game.scene.status_message)
+
+    def test_escape_closes_cheat_prompt_without_pausing(self):
+        game = Game()
+        game.state = GameState.PLAYING
+        game.scene = game.create_level_scene(0)
+
+        game.handle_playing_event(self.make_special_key_event(pygame.K_h, unicode="h"))
+        game.handle_playing_event(self.make_key_event("c"))
+        game.handle_playing_event(self.make_special_key_event(pygame.K_ESCAPE))
+
+        self.assertEqual(GameState.PLAYING, game.state)
+        self.assertFalse(game.cheat_prompt_active)
+        self.assertEqual("", game.cheat_input)
 
     def test_invincibility_persists_across_levels_and_resets_on_menu(self):
         game = Game()
@@ -257,7 +298,8 @@ class GameplayRuntimeTests(unittest.TestCase):
 
         game.return_to_menu()
         self.assertFalse(game.invincible_enabled)
-        self.assertEqual("", game.cheat_buffer)
+        self.assertFalse(game.cheat_prompt_active)
+        self.assertEqual("", game.cheat_input)
 
         game.start_new_campaign()
         self.assertFalse(game.invincible_enabled)

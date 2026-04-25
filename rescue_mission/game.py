@@ -290,7 +290,8 @@ class Game:
         self.dialogue_subtitle = ""
         self.dialogue_next_action = ""
         self.mouse_pos = (config.SCREEN_WIDTH // 2, config.SCREEN_HEIGHT // 2)
-        self.cheat_buffer = ""
+        self.cheat_prompt_active = False
+        self.cheat_input = ""
         self.invincible_enabled = False
         self.love_rabbit_enabled = False
 
@@ -368,10 +369,21 @@ class Game:
 
     def handle_playing_event(self, event):
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            if self.cheat_prompt_active:
+                self.close_cheat_prompt()
+                return
             self.pause_game()
             return
 
-        self.process_cheat_input(event)
+        if event.type != pygame.KEYDOWN:
+            return
+
+        if self.cheat_prompt_active:
+            self.process_cheat_prompt_input(event)
+            return
+
+        if event.key == pygame.K_h:
+            self.open_cheat_prompt()
 
     def handle_pause_event(self, event):
         if event.type == pygame.KEYDOWN:
@@ -530,6 +542,8 @@ class Game:
                 self.scene.mouse_pos = pygame.Vector2(self.mouse_pos)
             self.scene.draw(self.screen)
             ui.draw_gameplay_hud(self.screen, self.assets, self.scene, self.describe_next_upgrade(), self.mouse_pos)
+            if self.cheat_prompt_active:
+                ui.draw_cheat_prompt(self.screen, self.assets, self.cheat_input)
 
         elif self.state == GameState.PAUSED:
             if self.scene:
@@ -617,11 +631,13 @@ class Game:
 
     def restart_current_level(self):
         self.scene = self.create_level_scene(self.level_index)
+        self.close_cheat_prompt()
         self.state = GameState.PLAYING
 
     def pause_game(self):
         if self.state == GameState.PLAYING:
             self.audio.play("ui_click", volume=0.6)
+            self.close_cheat_prompt()
             self.state = GameState.PAUSED
 
     def resume_game(self):
@@ -683,6 +699,7 @@ class Game:
     def open_dialogue(self, script_key, next_action, subtitle="", footer="Nhấn Enter để tiếp."):
         """Má»Ÿ há»™i thoáº¡i nhiá»u trang vĂ  ghi nhá»› hĂ nh Ä‘á»™ng sau khi Ä‘á»c xong."""
 
+        self.close_cheat_prompt()
         self.dialogue_beats = list(self.dialogue_scripts.get(script_key, []))
         self.dialogue_index = 0
         self.dialogue_subtitle = subtitle
@@ -736,12 +753,32 @@ class Game:
             scene.enable_love_rabbit()
 
     def reset_cheat_state(self):
-        self.cheat_buffer = ""
+        self.close_cheat_prompt()
         self.invincible_enabled = False
         self.love_rabbit_enabled = False
 
-    def process_cheat_input(self, event):
-        if self.state != GameState.PLAYING or event.type != pygame.KEYDOWN:
+    def open_cheat_prompt(self):
+        if self.state != GameState.PLAYING:
+            return
+        self.cheat_prompt_active = True
+        self.cheat_input = ""
+        if self.scene:
+            self.scene.push_status_message("Nhập lệnh hack rồi nhấn Enter để kích hoạt.", 1.1)
+
+    def close_cheat_prompt(self):
+        self.cheat_prompt_active = False
+        self.cheat_input = ""
+
+    def process_cheat_prompt_input(self, event):
+        if self.state != GameState.PLAYING or event.type != pygame.KEYDOWN or not self.cheat_prompt_active:
+            return
+
+        if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+            self.submit_cheat_input()
+            return
+
+        if event.key == pygame.K_BACKSPACE:
+            self.cheat_input = self.cheat_input[:-1]
             return
 
         typed_char = (event.unicode or "").lower()
@@ -749,17 +786,32 @@ class Game:
             return
 
         max_length = max(len(code) for code in self.CHEAT_CODES)
-        self.cheat_buffer = (self.cheat_buffer + typed_char)[-max_length:]
-        for code, action_name in self.CHEAT_CODES.items():
-            if self.cheat_buffer.endswith(code):
-                getattr(self, action_name)()
-                self.cheat_buffer = ""
-                return
+        self.cheat_input = (self.cheat_input + typed_char)[:max_length]
+
+    def submit_cheat_input(self):
+        if self.state != GameState.PLAYING:
+            self.close_cheat_prompt()
+            return
+
+        code = self.cheat_input.strip().lower()
+        self.close_cheat_prompt()
+        if not code:
+            return
+
+        action_name = self.CHEAT_CODES.get(code)
+        if action_name is None:
+            if self.scene:
+                self.scene.push_status_message("Lệnh hack không hợp lệ.", 1.2)
+            return
+
+        getattr(self, action_name)()
 
     def toggle_invincibility(self):
         self.invincible_enabled = not self.invincible_enabled
         if self.scene:
             self.apply_cheat_state_to_scene(self.scene)
+            message = "Bất tử: BẬT" if self.invincible_enabled else "Bất tử: TẮT"
+            self.scene.push_status_message(message, 1.2)
 
     def force_level_win(self):
         if not self.scene or self.state != GameState.PLAYING:
@@ -775,6 +827,7 @@ class Game:
         else:
             self.scene.hostage.rescued = True
             self.scene.result_reason = f"{config.HOSTAGE_NAME} đã được {config.PLAYER_NAME} giải cứu."
+        self.scene.push_status_message("Rabbit: hoàn tất màn hiện tại.", 1.0)
         self.scene.result = "win"
 
     def trigger_love_rabbit(self):
