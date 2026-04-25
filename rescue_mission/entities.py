@@ -166,7 +166,7 @@ class Bullet(pygame.sprite.Sprite):
         self.velocity = safe_normalize(direction) * speed
         self.damage = damage
         self.friendly = friendly
-        self.lifetime = lifetime
+        self.lifetime = lifetime / config.FPS
         self.radius = 5 if friendly else 6
         self.color = color
 
@@ -177,10 +177,10 @@ class Bullet(pygame.sprite.Sprite):
         pygame.draw.circle(self.image, color, (center, center), self.radius)
         self.rect = self.image.get_rect(center=(round(self.pos.x), round(self.pos.y)))
 
-    def update(self, scene):
-        self.pos += self.velocity
+    def update(self, scene, delta_time):
+        self.pos += self.velocity * delta_time * config.FPS
         self.rect.center = (round(self.pos.x), round(self.pos.y))
-        self.lifetime -= 1
+        self.lifetime -= delta_time
 
         if self.lifetime <= 0 or not scene.world_rect.inflate(40, 40).collidepoint(self.pos):
             self.kill()
@@ -325,63 +325,66 @@ class Enemy(Actor):
         self.speed = enemy_type.speed + (level_number - 1) * 0.07
         self.contact_damage = enemy_type.contact_damage + (1 if level_number >= 3 else 0)
         self.score_value = enemy_type.score_value + (level_number - 1) * 2
-        self.fire_timer = random.randint(18, max(20, enemy_type.fire_interval)) if enemy_type.fire_interval else 0
-        self.path_timer = random.randint(8, 18)
+        self.fire_interval = max(36, self.enemy_type.fire_interval - self.level_number * 4) / config.FPS if enemy_type.fire_interval else 0.0
+        self.fire_timer = random.randint(18, max(20, enemy_type.fire_interval)) / config.FPS if enemy_type.fire_interval else 0.0
+        self.path_timer = random.randint(8, 18) / config.FPS
         self.path = []
         self.strafe_dir = random.choice([-1, 1])
         self.set_hitbox(16 if enemy_type.key != "shooter" else 18)
         self.set_base_image(assets.images[enemy_type.sprite_key])
 
-    def update(self, scene):
+    def update(self, scene, delta_time):
         # Enemy maze ưu tiên pathfinding, enemy màn thường ưu tiên AI theo range.
-        self.path_timer = max(0, self.path_timer - 1)
+        self.path_timer = max(0.0, self.path_timer - delta_time)
         target_pos = pygame.Vector2(scene.player.pos)
         to_player = target_pos - self.pos
         distance = to_player.length() if to_player.length_squared() > 0 else 0.0
         direction = safe_normalize(to_player, fallback=(1, 0))
+        velocity_scale = delta_time * config.FPS
 
         if scene.maze:
-            if self.path_timer == 0 or not self.path:
+            if self.path_timer <= 0 or not self.path:
                 self.path = scene.get_path(scene.maze.world_to_cell(self.pos), scene.maze.world_to_cell(target_pos))
-                self.path_timer = random.randint(15, 28)
+                self.path_timer = random.randint(15, 28) / config.FPS
             if self.path:
                 waypoint = pygame.Vector2(scene.maze.cell_to_world(self.path[0]))
                 if waypoint.distance_to(self.pos) < 10:
                     self.path.pop(0)
                 move_dir = safe_normalize(waypoint - self.pos, fallback=direction)
-                self.try_move(move_dir * self.speed, scene)
+                self.try_move(move_dir * self.speed * velocity_scale, scene)
             else:
-                self.try_move(direction * self.speed, scene)
+                self.try_move(direction * self.speed * velocity_scale, scene)
         else:
             if self.enemy_type.key == "shooter":
-                self.update_shooter_ai(scene, direction, distance)
+                self.update_shooter_ai(scene, direction, distance, delta_time)
             elif self.enemy_type.key == "runner":
-                self.try_move(direction * (self.speed * 1.15), scene)
+                self.try_move(direction * (self.speed * 1.15) * velocity_scale, scene)
             else:
-                self.try_move(direction * self.speed, scene)
+                self.try_move(direction * self.speed * velocity_scale, scene)
 
         if self.enemy_type.fire_interval:
-            self.fire_timer = max(0, self.fire_timer - 1)
-            if self.fire_timer == 0 and scene.has_clear_line(self.pos, scene.player.pos):
+            self.fire_timer = max(0.0, self.fire_timer - delta_time)
+            if self.fire_timer <= 0 and scene.has_clear_line(self.pos, scene.player.pos):
                 self.fire(scene)
-                self.fire_timer = max(36, self.enemy_type.fire_interval - self.level_number * 4)
+                self.fire_timer = self.fire_interval
 
         self.update_visual()
 
-    def update_shooter_ai(self, scene, direction, distance):
+    def update_shooter_ai(self, scene, direction, distance, delta_time):
         """Shooter có xu hướng giữ tầm, lùa góc và strafe ngang."""
 
         preferred = self.enemy_type.preferred_range
         tangent = pygame.Vector2(-direction.y, direction.x) * self.strafe_dir
+        velocity_scale = delta_time * config.FPS
         if distance > preferred + 30:
-            move = direction * self.speed
+            move = direction * self.speed * velocity_scale
         elif distance < preferred * 0.65:
-            move = -direction * self.speed
+            move = -direction * self.speed * velocity_scale
         else:
-            move = tangent * (self.speed * 0.9)
+            move = tangent * (self.speed * 0.9) * velocity_scale
         self.try_move(move, scene)
 
-        if random.random() < 0.01:
+        if random.random() < min(1.0, 0.6 * delta_time):
             self.strafe_dir *= -1
 
     def try_move(self, velocity, scene):
@@ -416,6 +419,8 @@ class Enemy(Actor):
         )
         scene.enemy_bullets.add(bullet)
         scene.add_burst(self.pos + direction * 16, self.enemy_type.bullet_color, 5)
+        if getattr(scene, "audio", None):
+            scene.audio.play("enemy_shoot", volume=0.55)
 
     def take_damage(self, amount):
         self.health -= amount

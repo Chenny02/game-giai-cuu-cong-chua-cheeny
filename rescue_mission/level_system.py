@@ -100,6 +100,61 @@ def build_level_specs():
     ]
 
 
+def build_level_specs():
+    """Tạo danh sách màn với text UTF-8 chuẩn."""
+
+    return [
+        LevelSpec(
+            number=1,
+            title="Tiến vào lâu đài",
+            description=f"{config.PLAYER_NAME} xâm nhập Shadow Kingdom để tìm {config.HOSTAGE_NAME}.",
+            use_maze=False,
+            has_boss=False,
+            hostage_required=True,
+            time_limit=config.LEVEL_TIME_LIMIT_SECONDS,
+            enemy_weights={"grunt": 85, "runner": 15},
+            spawn_range=(70, 110),
+            max_enemies=5,
+        ),
+        LevelSpec(
+            number=2,
+            title="Cuộc săn đuổi",
+            description=f"Quân của {config.BOSS_NAME} truy đuổi {config.PLAYER_NAME} khắp lâu đài.",
+            use_maze=False,
+            has_boss=False,
+            hostage_required=True,
+            time_limit=config.LEVEL_TIME_LIMIT_SECONDS,
+            enemy_weights={"grunt": 50, "runner": 20, "shooter": 30},
+            spawn_range=(58, 92),
+            max_enemies=7,
+        ),
+        LevelSpec(
+            number=3,
+            title="Mê cung bóng tối",
+            description=f"{config.PLAYER_NAME} lần theo dấu vết của {config.HOSTAGE_NAME} trong mê cung DFS.",
+            use_maze=True,
+            has_boss=False,
+            hostage_required=True,
+            time_limit=config.LEVEL_TIME_LIMIT_SECONDS,
+            enemy_weights={"grunt": 50, "runner": 30, "shooter": 20},
+            spawn_range=(65, 95),
+            max_enemies=8,
+        ),
+        LevelSpec(
+            number=4,
+            title="Trận chiến cuối",
+            description=f"Đối đầu {config.BOSS_NAME}, cứu {config.HOSTAGE_NAME} và kết thúc bóng tối.",
+            use_maze=False,
+            has_boss=True,
+            hostage_required=True,
+            time_limit=config.LEVEL_TIME_LIMIT_SECONDS,
+            enemy_weights={"grunt": 35, "runner": 30, "shooter": 35},
+            spawn_range=(72, 108),
+            max_enemies=9,
+        ),
+    ]
+
+
 class Maze:
     """Maze được pre-render sẵn để giảm chi phí vẽ mỗi frame."""
 
@@ -233,6 +288,27 @@ class Maze:
                         cells.append((x, y))
         return random.choice(cells) if cells else self.player_start
 
+    def find_nearest_walkable_cell(self, origin_cell, max_radius=8):
+        if self.is_walkable_cell(origin_cell):
+            return origin_cell
+
+        ox, oy = origin_cell
+        best_cell = None
+        best_distance = None
+        for radius in range(1, max_radius + 1):
+            for y in range(max(0, oy - radius), min(self.height, oy + radius + 1)):
+                for x in range(max(0, ox - radius), min(self.width, ox + radius + 1)):
+                    cell = (x, y)
+                    if not self.is_walkable_cell(cell):
+                        continue
+                    distance = abs(x - ox) + abs(y - oy)
+                    if best_distance is None or distance < best_distance:
+                        best_cell = cell
+                        best_distance = distance
+            if best_cell is not None:
+                return best_cell
+        return None
+
 
 class LevelScene:
     """Quản lý toàn bộ logic của một mission; Game chỉ cần điều khiển state."""
@@ -256,6 +332,9 @@ class LevelScene:
         self.path_cache = {}
         self.cached_goal = None
         self.effect_animations = build_effect_animations(assets)
+        self.player_invincible = False
+        self.audio = None
+        self.tutorial_timer = 10.0
 
         self.maze = Maze(self.world_rect) if level_spec.use_maze else None
         player_stats = config.player_stats_for_level(level_spec.number)
@@ -274,9 +353,9 @@ class LevelScene:
         self.enemy_bullets = pygame.sprite.Group()
         self.effects = pygame.sprite.Group()
         self.boss = Boss((self.world_rect.centerx, self.world_rect.top + 120), assets) if level_spec.has_boss else None
-        self.spawn_timer = random.randint(*level_spec.spawn_range)
-        self.time_left = level_spec.time_limit * config.FPS
-        self.objective_flash = 0
+        self.spawn_timer = random.randint(*level_spec.spawn_range) / config.FPS
+        self.time_left = float(level_spec.time_limit)
+        self.objective_flash = 0.0
 
     def update(self, delta_time):
         """Một frame gameplay.
@@ -294,23 +373,25 @@ class LevelScene:
             return
 
         self.frame_count += 1
-        self.time_left -= 1
-        self.objective_flash = (self.objective_flash + 1) % 120
-        self.screen_shake = max(0, self.screen_shake - 1)
-        self.update_effects()
+        frame_scale = delta_time * config.FPS
+        self.time_left -= delta_time
+        self.tutorial_timer = max(0.0, self.tutorial_timer - delta_time)
+        self.objective_flash = (self.objective_flash + frame_scale) % 120
+        self.screen_shake = max(0.0, self.screen_shake - frame_scale)
+        self.update_effects(delta_time)
 
         self.player.update(self, delta_time)
         self.hostage.update(self, delta_time)
-        self.player_bullets.update(self)
-        self.enemy_bullets.update(self)
+        self.player_bullets.update(self, delta_time)
+        self.enemy_bullets.update(self, delta_time)
         self.effects.update(delta_time)
 
         for enemy in list(self.enemies):
-            enemy.update(self)
+            enemy.update(self, delta_time)
         if self.boss:
             self.boss.update(self, delta_time)
 
-        self.handle_spawning()
+        self.handle_spawning(delta_time)
         self.handle_collisions()
         self.check_objectives()
 
@@ -319,27 +400,28 @@ class LevelScene:
         elif self.player.health <= 0:
             self.fail_level("Bạn đã bị hạ gục.")
 
-    def update_effects(self):
+    def update_effects(self, delta_time):
         """Hiệu ứng trúng đạn được giữ ngắn và rẻ để vẽ."""
 
+        frame_scale = delta_time * config.FPS
         updated = []
         for effect in self.hit_effects:
-            effect["life"] -= 1
-            effect["radius"] += 1.25
+            effect["life"] -= frame_scale
+            effect["radius"] += 1.25 * frame_scale
             if effect["life"] > 0:
                 updated.append(effect)
         self.hit_effects = updated
 
-    def handle_spawning(self):
+    def handle_spawning(self, delta_time):
         """Giữ áp lực giao tranh bằng timer spawn và giới hạn số enemy sống."""
 
-        self.spawn_timer -= 1
+        self.spawn_timer -= delta_time
         if self.spawn_timer > 0:
             return
 
         if len(self.enemies) < self.level_spec.max_enemies:
             self.spawn_enemy()
-        self.spawn_timer = random.randint(*self.level_spec.spawn_range)
+        self.spawn_timer = random.randint(*self.level_spec.spawn_range) / config.FPS
 
     def spawn_enemy(self, forced_type=None):
         """Sinh enemy theo trọng số hoặc theo yêu cầu cưỡng bức từ boss."""
@@ -382,42 +464,59 @@ class LevelScene:
             if enemy:
                 bullet.kill()
                 self.add_effect("hit", bullet.pos)
+                if self.audio:
+                    self.audio.play("hit", volume=0.75)
                 if enemy.take_damage(bullet.damage):
                     self.score += enemy.score_value
                     self.add_effect("explosion", enemy.pos)
+                    if self.audio:
+                        self.audio.play("enemy_down", volume=0.75)
                     enemy.kill()
                 continue
 
             if boss_hitbox and boss_hitbox.colliderect(bullet.rect):
                 bullet.kill()
                 self.add_effect("hit", bullet.pos)
+                if self.audio:
+                    self.audio.play("hit", volume=0.85)
                 if self.boss.take_damage(bullet.damage):
                     self.add_effect("explosion", self.boss.pos)
+                    if self.audio:
+                        self.audio.play("enemy_down")
                     boss_hitbox = None
 
         for bullet in list(self.enemy_bullets):
             if player_hitbox.colliderect(bullet.rect):
                 bullet.kill()
-                if self.player.take_damage(bullet.damage):
+                if self.player.take_damage(bullet.damage, scene=self):
                     self.add_effect("hit", self.player.pos)
+                    if self.audio:
+                        self.audio.play("hurt")
                     self.screen_shake = 7
 
         for enemy in list(self.enemies):
             if player_hitbox.colliderect(enemy.collision_rect()):
-                if self.player.take_damage(enemy.contact_damage):
+                if self.player.take_damage(enemy.contact_damage, scene=self):
                     self.add_effect("hit", self.player.pos)
+                    if self.audio:
+                        self.audio.play("hurt")
                     self.screen_shake = 10
                 enemy.kill()
 
         if boss_hitbox and player_hitbox.colliderect(boss_hitbox):
-            if self.player.take_damage(22):
+            if self.player.take_damage(22, scene=self):
                 self.add_effect("hit", self.player.pos)
+                if self.audio:
+                    self.audio.play("hurt")
                 self.screen_shake = 12
 
         if self.level_spec.hostage_required and not self.hostage.rescued and player_hitbox.colliderect(hostage_hitbox):
             self.hostage.rescued = True
             self.score += 200
-            self.add_effect("explosion", self.hostage.pos)
+            self.add_effect("rescue", self.hostage.pos)
+            self.add_burst(self.hostage.pos, config.COLOR_WARNING, 14)
+            if self.audio:
+                self.audio.play("rescue")
 
     def check_objectives(self):
         """Dieu kien thang duoc gom vao 1 cho de de doc va de doi luat choi."""
@@ -507,8 +606,9 @@ class LevelScene:
 
         offset = pygame.Vector2(0, 0)
         if self.screen_shake:
-            offset.x = random.randint(-self.screen_shake, self.screen_shake)
-            offset.y = random.randint(-self.screen_shake, self.screen_shake)
+            shake_amount = max(1, int(round(self.screen_shake)))
+            offset.x = random.randint(-shake_amount, shake_amount)
+            offset.y = random.randint(-shake_amount, shake_amount)
 
         surface.blit(self.assets.world_background, (0, 0))
         if self.assets.images["world_bg"]:
@@ -546,6 +646,7 @@ class LevelScene:
         self.draw_entity_label(world_layer, self.player.rect, config.PLAYER_NAME, (88, 197, 255))
         self.draw_effects(world_layer)
         self.draw_muzzle_flash(world_layer)
+        self.draw_tutorial_prompt(world_layer)
 
         surface.blit(world_layer, (int(offset.x), int(offset.y)))
 
@@ -576,7 +677,8 @@ class LevelScene:
         if self.player.muzzle_timer <= 0:
             return
         center = self.player.pos + self.player.aim_direction * 24
-        radius = 8 + self.player.muzzle_timer * 3
+        flash_ratio = self.player.muzzle_timer / max(self.player.muzzle_flash_duration, 0.001)
+        radius = 8 + flash_ratio * 9
         pygame.draw.circle(surface, (255, 245, 194, 180), center, radius)
 
     def draw_objective_line(self, surface):
@@ -586,3 +688,19 @@ class LevelScene:
             return
         if self.objective_flash < 60:
             pygame.draw.line(surface, (255, 221, 122, 70), self.player.pos, self.hostage.pos, width=1)
+
+    def draw_tutorial_prompt(self, surface):
+        if self.level_spec.number != 1 or self.tutorial_timer <= 0:
+            return
+
+        alpha = min(220, int(70 + self.tutorial_timer * 18))
+        panel = pygame.Surface((520, 42), pygame.SRCALPHA)
+        pygame.draw.rect(panel, (5, 10, 20, alpha), panel.get_rect(), border_radius=14)
+        pygame.draw.rect(panel, (*config.COLOR_ACCENT, min(220, alpha)), panel.get_rect(), width=1, border_radius=14)
+        text = self.assets.font_small.render(
+            "WASD di chuyển | Chuột/Space bắn | Chạm Lina để cứu | ESC tạm dừng",
+            True,
+            config.COLOR_TEXT,
+        )
+        panel.blit(text, (22, 12))
+        surface.blit(panel, (self.world_rect.centerx - panel.get_width() // 2, self.world_rect.top + 18))

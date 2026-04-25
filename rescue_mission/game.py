@@ -1,12 +1,12 @@
-"""Game bootstrap và state machine tổng.
+﻿"""Game bootstrap vĂ  state machine tá»•ng.
 
-Ý tưởng kiến trúc:
-- `Game` chỉ điều phối trạng thái lớn của ứng dụng.
-- Toàn bộ logic chiến đấu của 1 màn được giao cho `LevelScene`.
-- UI được gọi từ đây, nhưng `Game` không tự vẽ chi tiết từng entity.
+Ă tÆ°á»Ÿng kiáº¿n trĂºc:
+- `Game` chá»‰ Ä‘iá»u phá»‘i tráº¡ng thĂ¡i lá»›n cá»§a á»©ng dá»¥ng.
+- ToĂ n bá»™ logic chiáº¿n Ä‘áº¥u cá»§a 1 mĂ n Ä‘Æ°á»£c giao cho `LevelScene`.
+- UI Ä‘Æ°á»£c gá»i tá»« Ä‘Ă¢y, nhÆ°ng `Game` khĂ´ng tá»± váº½ chi tiáº¿t tá»«ng entity.
 
-Nhờ cách tách này, ta có thể thay đổi gameplay từng màn mà không phải sửa menu,
-và cũng có thể đổi giao diện mà không làm vỡ combat loop.
+Nhá» cĂ¡ch tĂ¡ch nĂ y, ta cĂ³ thá»ƒ thay Ä‘á»•i gameplay tá»«ng mĂ n mĂ  khĂ´ng pháº£i sá»­a menu,
+vĂ  cÅ©ng cĂ³ thá»ƒ Ä‘á»•i giao diá»‡n mĂ  khĂ´ng lĂ m vá»¡ combat loop.
 """
 
 import sys
@@ -15,6 +15,7 @@ from dataclasses import dataclass
 import pygame
 
 from . import config, ui
+from .audio import AudioManager
 from .assets import AssetManager
 from .level_system import LevelScene, build_level_specs
 from .states import GameState
@@ -38,99 +39,99 @@ def build_dialogue_scripts():
     return {
         "intro": [
             DialogueBeat(
-                "MỞ ĐẦU GAME",
+                "MỞ ĐẦU",
                 config.HOSTAGE_NAME,
-                f"{config.PLAYER_NAME}... nếu anh nghe thấy... hãy đến cứu em... bóng tối đang nuốt chửng nơi này...",
+                f"{config.PLAYER_NAME}... nếu anh nghe thấy... hãy đến cứu em. Bóng tối đang nuốt chửng nơi này...",
                 lina,
             ),
             DialogueBeat(
-                "MỞ ĐẦU GAME",
+                "MỞ ĐẦU",
                 config.BOSS_NAME,
-                "Mọi hy vọng đều vô ích. Vương quốc này... đã thuộc về ta.",
+                "Mọi hy vọng đều vô ích. Vương quốc này đã thuộc về ta.",
                 orion,
             ),
             DialogueBeat(
-                "MỞ ĐẦU GAME",
+                "MỞ ĐẦU",
                 config.PLAYER_NAME,
-                f"Ta sẽ không để điều đó xảy ra. {config.HOSTAGE_NAME}, hãy chờ ta!",
+                f"Ta sẽ không để điều đó xảy ra. {config.HOSTAGE_NAME}, hãy chờ ta.",
                 aris,
             ),
         ],
         "level_1_clear": [
             DialogueBeat(
-                "SAU MÀN 1 – THÂM NHẬP",
+                "SAU MÀN 1 - THÂM NHẬP",
                 config.PLAYER_NAME,
-                "Mình đã vào được lâu đài... nhưng nơi này đầy cạm bẫy.",
+                "Mình đã vào được lâu đài, nhưng nơi này đầy cạm bẫy.",
                 aris,
             ),
             DialogueBeat(
-                "SAU MÀN 1 – THÂM NHẬP",
+                "SAU MÀN 1 - THÂM NHẬP",
                 config.HOSTAGE_NAME,
-                f"{config.PLAYER_NAME}... hãy cẩn thận... chúng đang canh giữ mọi lối đi...",
+                f"{config.PLAYER_NAME}... hãy cẩn thận. Chúng đang canh giữ mọi lối đi...",
                 lina,
             ),
             DialogueBeat(
-                "SAU MÀN 1 – THÂM NHẬP",
+                "SAU MÀN 1 - THÂM NHẬP",
                 config.BOSS_NAME,
-                "Ngươi chỉ vừa bước vào... và đã nghĩ mình có cơ hội sao?",
+                "Ngươi chỉ vừa bước vào mà đã nghĩ mình có cơ hội sao?",
                 orion,
             ),
         ],
         "level_2_clear": [
             DialogueBeat(
-                "SAU MÀN 2 – TRUY ĐUỔI",
+                "SAU MÀN 2 - TRUY ĐUỔI",
                 config.PLAYER_NAME,
-                "Những sinh vật này... chúng không di chuyển ngẫu nhiên... chúng đang săn mình!",
+                "Những sinh vật này không di chuyển ngẫu nhiên. Chúng đang săn mình.",
                 aris,
             ),
             DialogueBeat(
-                "SAU MÀN 2 – TRUY ĐUỔI",
+                "SAU MÀN 2 - TRUY ĐUỔI",
                 config.HOSTAGE_NAME,
-                f"Đó là {config.BOSS_NAME}... nó điều khiển tất cả... nó học từ từng bước đi của anh...",
+                f"Đó là {config.BOSS_NAME}... hắn điều khiển tất cả... hắn đang đọc từng bước đi của anh...",
                 lina,
             ),
             DialogueBeat(
-                "SAU MÀN 2 – TRUY ĐUỔI",
+                "SAU MÀN 2 - TRUY ĐUỔI",
                 config.BOSS_NAME,
-                "Ta biết ngươi sẽ đi đâu... trước cả khi ngươi quyết định.",
+                "Ta biết ngươi sẽ đi đâu trước cả khi ngươi quyết định.",
                 orion,
             ),
         ],
         "level_3_clear": [
             DialogueBeat(
-                "SAU MÀN 3 – MÊ CUNG",
+                "SAU MÀN 3 - MÊ CUNG",
                 config.PLAYER_NAME,
-                "Mê cung này... thay đổi liên tục... như có ý thức vậy...",
+                "Mê cung này thay đổi liên tục, như thể nó có ý thức vậy.",
                 aris,
             ),
             DialogueBeat(
-                "SAU MÀN 3 – MÊ CUNG",
+                "SAU MÀN 3 - MÊ CUNG",
                 config.HOSTAGE_NAME,
-                f"{config.BOSS_NAME} đang thử thách anh... nó muốn khiến anh lạc lối...",
+                f"{config.BOSS_NAME} đang thử thách anh. Hắn muốn khiến anh lạc lối...",
                 lina,
             ),
             DialogueBeat(
-                "SAU MÀN 3 – MÊ CUNG",
+                "SAU MÀN 3 - MÊ CUNG",
                 config.PLAYER_NAME,
-                "Dù mê cung có phức tạp đến đâu... luôn có đường ra!",
+                "Dù mê cung có phức tạp đến đâu, luôn có đường ra.",
                 aris,
             ),
             DialogueBeat(
-                "TRƯỚC MÀN 4 – ĐỐI ĐẦU BOSS",
+                "TRƯỚC MÀN 4 - ĐỐI ĐẦU",
                 config.BOSS_NAME,
                 f"Ngươi đã đi quá xa rồi, {config.PLAYER_NAME}. Đây sẽ là nơi ngươi kết thúc.",
                 orion,
             ),
             DialogueBeat(
-                "TRƯỚC MÀN 4 – ĐỐI ĐẦU BOSS",
+                "TRƯỚC MÀN 4 - ĐỐI ĐẦU",
                 config.PLAYER_NAME,
-                "Không... đây là nơi ngươi thất bại.",
+                "Không. Đây là nơi ngươi thất bại.",
                 aris,
             ),
             DialogueBeat(
-                "TRƯỚC MÀN 4 – ĐỐI ĐẦU BOSS",
+                "TRƯỚC MÀN 4 - ĐỐI ĐẦU",
                 config.HOSTAGE_NAME,
-                f"{config.PLAYER_NAME}... em tin anh!",
+                f"{config.PLAYER_NAME}... em tin anh.",
                 lina,
             ),
         ],
@@ -144,31 +145,31 @@ def build_dialogue_scripts():
             DialogueBeat(
                 "KẾT THÚC",
                 config.PLAYER_NAME,
-                "Sức mạnh thật sự... không nằm ở tính toán.",
+                "Sức mạnh thật sự không nằm ở tính toán.",
                 aris,
             ),
             DialogueBeat(
                 "KẾT THÚC",
                 config.HOSTAGE_NAME,
-                f"Anh đã làm được rồi, {config.PLAYER_NAME}!",
+                f"Anh đã làm được rồi, {config.PLAYER_NAME}.",
                 lina,
             ),
             DialogueBeat(
                 "KẾT THÚC",
                 config.PLAYER_NAME,
-                "Chúng ta về thôi... vương quốc đang chờ.",
+                "Chúng ta về thôi. Vương quốc đang chờ.",
                 aris,
             ),
         ],
         "game_over": [
             DialogueBeat(
-                "GAME OVER",
+                "THẤT BẠI",
                 config.BOSS_NAME,
-                "Kết thúc rồi... con người luôn thất bại trước trí tuệ hoàn hảo.",
+                "Kết thúc rồi. Con người luôn thất bại trước trí tuệ hoàn hảo.",
                 orion,
             ),
             DialogueBeat(
-                "GAME OVER",
+                "THẤT BẠI",
                 config.HOSTAGE_NAME,
                 f"{config.PLAYER_NAME}... xin đừng bỏ cuộc...",
                 lina,
@@ -178,7 +179,12 @@ def build_dialogue_scripts():
 
 
 class Game:
-    """State machine tổng cho menu, chơi game, qua màn, thua và chiến thắng."""
+    """State machine tá»•ng cho menu, chÆ¡i game, qua mĂ n, thua vĂ  chiáº¿n tháº¯ng."""
+
+    CHEAT_CODES = {
+        "chenny": "toggle_invincibility",
+        "rabbit": "force_level_win",
+    }
 
     def __init__(self):
         pygame.init()
@@ -192,12 +198,31 @@ class Game:
         self.screen = pygame.Surface(self.base_size).convert()
         self.clock = pygame.time.Clock()
 
+        self.audio = AudioManager()
         self.assets = AssetManager()
         self.level_specs = build_level_specs()
         self.dialogue_scripts = build_dialogue_scripts()
         self.buttons = [
-            ui.Button(pygame.Rect(70, 420, 300, 82), "Bắt đầu", "Chơi ngay"),
-            ui.Button(pygame.Rect(70, 520, 300, 82), "Thoát", "Rời game"),
+            ui.Button(pygame.Rect(430, 340, 360, 86), "BẮT ĐẦU", "Chiến dịch 1-4", True, "primary", "start"),
+            ui.Button(pygame.Rect(452, 442, 316, 62), "TIẾP TỤC", "Chưa có lượt lưu", False, "default", "play"),
+            ui.Button(pygame.Rect(452, 518, 316, 62), "CHỌN MÀN", "Sẽ mở sau", False, "default", "grid"),
+            ui.Button(pygame.Rect(452, 594, 316, 62), "THOÁT", "Rời trò chơi", True, "danger", "exit"),
+        ]
+        self.pause_buttons = [
+            ui.Button(pygame.Rect(438, 270, 304, 58), "Tiếp tục", "Quay lại màn chơi"),
+            ui.Button(pygame.Rect(438, 342, 304, 58), "Chơi lại", "Bắt đầu lại màn này"),
+            ui.Button(pygame.Rect(438, 414, 304, 58), "Về menu", "Kết thúc lượt chơi"),
+        ]
+        self.settings_buttons = [
+            ui.Button(pygame.Rect(410, 540, 80, 44), "SFX -", ""),
+            ui.Button(pygame.Rect(500, 540, 80, 44), "SFX +", ""),
+            ui.Button(pygame.Rect(600, 540, 90, 44), "Music -", ""),
+            ui.Button(pygame.Rect(700, 540, 90, 44), "Music +", ""),
+            ui.Button(pygame.Rect(785, 540, 115, 44), "Fullscreen", ""),
+        ]
+        self.game_over_buttons = [
+            ui.Button(pygame.Rect(438, 448, 304, 58), "Thử lại", "Chơi lại màn này"),
+            ui.Button(pygame.Rect(438, 520, 304, 58), "Về menu", "Rời lượt chơi"),
         ]
 
         pygame.mouse.set_visible(False)
@@ -207,6 +232,7 @@ class Game:
         self.level_index = 0
         self.scene = None
         self.total_score = 0
+        self.best_score = 0
         self.overlay_timer = 0
         self.menu_pulse = 0
         self.dialogue_beats = []
@@ -215,14 +241,16 @@ class Game:
         self.dialogue_subtitle = ""
         self.dialogue_next_action = ""
         self.mouse_pos = (config.SCREEN_WIDTH // 2, config.SCREEN_HEIGHT // 2)
+        self.cheat_buffer = ""
+        self.invincible_enabled = False
 
     def run(self):
-        """Vòng lặp chính của game.
+        """VĂ²ng láº·p chĂ­nh cá»§a game.
 
-        Mỗi frame chỉ làm 3 việc:
-        1. Đọc input
-        2. Update state hiện tại
-        3. Vẽ state hiện tại
+        Má»—i frame chá»‰ lĂ m 3 viá»‡c:
+        1. Äá»c input
+        2. Update state hiá»‡n táº¡i
+        3. Váº½ state hiá»‡n táº¡i
         """
 
         while self.running:
@@ -237,7 +265,7 @@ class Game:
         pygame.quit()
 
     def handle_events(self):
-        """Phân input theo state để tránh if/else lớn trong mỗi scene."""
+        """PhĂ¢n input theo state Ä‘á»ƒ trĂ¡nh if/else lá»›n trong má»—i scene."""
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -269,6 +297,10 @@ class Game:
                 self.handle_dialogue_event(event)
             elif self.state == GameState.PLAYING:
                 self.handle_playing_event(event)
+            elif self.state == GameState.PAUSED:
+                self.handle_pause_event(event)
+            elif self.state == GameState.GAME_OVER:
+                self.handle_game_over_event(event)
             else:
                 self.handle_overlay_event(event)
 
@@ -278,29 +310,95 @@ class Game:
 
         mouse_pos = self.mouse_pos
         if self.buttons[0].hovered(mouse_pos):
+            self.audio.play("ui_click")
             self.start_new_campaign()
-        elif self.buttons[1].hovered(mouse_pos):
+        elif len(self.buttons) > 3 and self.buttons[3].hovered(mouse_pos):
+            self.audio.play("ui_click")
             self.running = False
 
     def handle_playing_event(self, event):
-        # ESC được giữ lại như một nút thoát nhanh về menu.
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            self.pause_game()
+            return
+
+        self.process_cheat_input(event)
+
+    def handle_pause_event(self, event):
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                self.resume_game()
+            elif event.key == pygame.K_r:
+                self.restart_current_level()
+            elif event.key == pygame.K_m:
+                self.return_to_menu()
+            return
+
+        if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
+            return
+
+        mouse_pos = self.mouse_pos
+        if self.pause_buttons[0].hovered(mouse_pos):
+            self.audio.play("ui_click")
+            self.resume_game()
+        elif self.pause_buttons[1].hovered(mouse_pos):
+            self.audio.play("ui_click")
+            self.restart_current_level()
+        elif self.pause_buttons[2].hovered(mouse_pos):
+            self.audio.play("ui_click")
+            self.return_to_menu()
+        elif self.settings_buttons[0].hovered(mouse_pos):
+            self.audio.change_sfx_volume(-0.1)
+            self.audio.play("ui_click")
+        elif self.settings_buttons[1].hovered(mouse_pos):
+            self.audio.change_sfx_volume(0.1)
+            self.audio.play("ui_click")
+        elif self.settings_buttons[2].hovered(mouse_pos):
+            self.audio.change_music_volume(-0.1)
+            self.audio.play("ui_click")
+        elif self.settings_buttons[3].hovered(mouse_pos):
+            self.audio.change_music_volume(0.1)
+            self.audio.play("ui_click")
+        elif self.settings_buttons[4].hovered(mouse_pos):
+            self.audio.play("ui_click")
+            self.toggle_fullscreen()
+            self.mouse_pos = self.get_logical_mouse_position()
+
+    def handle_game_over_event(self, event):
+        if event.type == pygame.KEYDOWN:
+            if event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_r):
+                self.restart_current_level()
+            elif event.key in (pygame.K_ESCAPE, pygame.K_m):
+                self.return_to_menu()
+            return
+
+        if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
+            return
+
+        mouse_pos = self.mouse_pos
+        if self.game_over_buttons[0].hovered(mouse_pos):
+            self.audio.play("ui_click")
+            self.restart_current_level()
+        elif self.game_over_buttons[1].hovered(mouse_pos):
+            self.audio.play("ui_click")
             self.return_to_menu()
 
     def handle_dialogue_event(self, event):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
+                self.audio.play("ui_click")
                 self.return_to_menu()
                 return
             if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                self.audio.play("ui_click", volume=0.5)
                 self.advance_dialogue()
                 return
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            self.audio.play("ui_click", volume=0.5)
             self.advance_dialogue()
 
     def handle_overlay_event(self, event):
-        # Sau màn hoặc khi thua, bất kỳ phím/chuột đều là một xác nhận hợp lý.
+        # Sau mĂ n hoáº·c khi thua, báº¥t ká»³ phĂ­m/chuá»™t Ä‘á»u lĂ  má»™t xĂ¡c nháº­n há»£p lĂ½.
         if event.type not in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
             return
 
@@ -310,15 +408,18 @@ class Game:
             self.return_to_menu()
 
     def update(self):
-        """Chỉ cập nhật state hiện tại; Game không chen vào nội bộ combat."""
+        """Chá»‰ cáº­p nháº­t state hiá»‡n táº¡i; Game khĂ´ng chen vĂ o ná»™i bá»™ combat."""
 
         if self.state == GameState.PLAYING:
             delta_time = self.clock.get_time() / 1000.0
+            self.scene.mouse_pos = pygame.Vector2(self.mouse_pos)
             self.scene.update(delta_time)
 
             if self.scene.result == "win":
                 self.total_score += self.scene.score
+                self.best_score = max(self.best_score, self.total_score)
                 if self.level_index == len(self.level_specs) - 1:
+                    self.audio.play("win")
                     self.open_dialogue(
                         "victory",
                         "return_to_menu",
@@ -326,6 +427,7 @@ class Game:
                         footer="Nhấn Enter, Space hoặc chuột trái để về menu.",
                     )
                 else:
+                    self.audio.play("rescue")
                     self.open_dialogue(
                         f"level_{self.level_index + 1}_clear",
                         "next_level",
@@ -335,15 +437,12 @@ class Game:
 
             elif self.scene.result == "lose":
                 self.total_score += self.scene.score
-                self.open_dialogue(
-                    "game_over",
-                    "return_to_menu",
-                    subtitle=self.scene.result_reason,
-                    footer="Nhấn Enter, Space hoặc chuột trái để về menu.",
-                )
+                self.best_score = max(self.best_score, self.total_score)
+                self.audio.play("lose")
+                self.state = GameState.GAME_OVER
 
     def draw(self):
-        """Mỗi state có cách vẽ riêng, nhưng đều đi qua một điểm trung tâm."""
+        """Má»—i state cĂ³ cĂ¡ch váº½ riĂªng, nhÆ°ng Ä‘á»u Ä‘i qua má»™t Ä‘iá»ƒm trung tĂ¢m."""
 
         if self.state == GameState.MENU:
             ui.draw_menu(
@@ -351,7 +450,7 @@ class Game:
                 self.assets,
                 self.buttons,
                 self.mouse_pos,
-                self.total_score,
+                self.best_score,
                 self.menu_pulse,
             )
 
@@ -382,6 +481,21 @@ class Game:
             self.scene.draw(self.screen)
             ui.draw_hud(self.screen, self.assets, self.scene, self.describe_next_upgrade(), self.mouse_pos)
 
+        elif self.state == GameState.PAUSED:
+            if self.scene:
+                self.scene.mouse_pos = pygame.Vector2(self.mouse_pos)
+                self.scene.draw(self.screen)
+                ui.draw_hud(self.screen, self.assets, self.scene, self.describe_next_upgrade(), self.mouse_pos)
+            ui.draw_pause_menu(
+                self.screen,
+                self.assets,
+                self.pause_buttons,
+                self.settings_buttons,
+                self.mouse_pos,
+                self.audio,
+                self.fullscreen,
+            )
+
         elif self.state == GameState.LEVEL_COMPLETE:
             if self.scene:
                 self.scene.mouse_pos = pygame.Vector2(self.mouse_pos)
@@ -390,7 +504,7 @@ class Game:
             ui.draw_overlay(
                 self.screen,
                 self.assets,
-                "HOÀN THÀNH",
+                "HOĂ€N THĂ€NH",
                 self.scene.result_reason,
                 "Nhấn phím bất kỳ để qua màn.",
                 config.COLOR_ACCENT,
@@ -401,13 +515,13 @@ class Game:
                 self.scene.mouse_pos = pygame.Vector2(self.mouse_pos)
             self.scene.draw(self.screen)
             ui.draw_hud(self.screen, self.assets, self.scene, self.describe_next_upgrade(), self.mouse_pos)
-            ui.draw_overlay(
+            ui.draw_game_over(
                 self.screen,
                 self.assets,
-                "THẤT BẠI",
                 self.scene.result_reason,
-                "Nhấn phím bất kỳ để về menu.",
-                config.COLOR_DANGER,
+                self.scene.score,
+                self.game_over_buttons,
+                self.mouse_pos,
             )
 
         elif self.state == GameState.VICTORY:
@@ -418,7 +532,7 @@ class Game:
             ui.draw_overlay(
                 self.screen,
                 self.assets,
-                "CHIẾN THẮNG",
+                "CHIáº¾N THáº®NG",
                 f"{config.BOSS_NAME} đã bị hạ. {config.HOSTAGE_NAME} đã an toàn.",
                 f"{config.PLAYER_NAME} hoàn thành sứ mệnh | Tổng điểm: {self.total_score}",
                 config.COLOR_WARNING,
@@ -427,11 +541,12 @@ class Game:
         self.present_screen()
 
     def start_new_campaign(self):
-        """Reset campaign và tạo scene cho màn đầu tiên."""
+        """Reset campaign vĂ  táº¡o scene cho mĂ n Ä‘áº§u tiĂªn."""
 
         self.total_score = 0
         self.level_index = 0
-        self.scene = LevelScene(self.assets, self.level_specs[self.level_index])
+        self.reset_cheat_state()
+        self.scene = self.create_level_scene(self.level_index)
         self.open_dialogue(
             "intro",
             "resume_current_level",
@@ -440,18 +555,31 @@ class Game:
         )
 
     def begin_next_level(self):
-        """Chuyển sang màn tiếp theo, nếu hết màn thì vào state chiến thắng."""
+        """Chuyá»ƒn sang mĂ n tiáº¿p theo, náº¿u háº¿t mĂ n thĂ¬ vĂ o state chiáº¿n tháº¯ng."""
 
         self.level_index += 1
         if self.level_index >= len(self.level_specs):
             self.return_to_menu()
             return
 
-        self.scene = LevelScene(self.assets, self.level_specs[self.level_index])
+        self.scene = self.create_level_scene(self.level_index)
         self.state = GameState.PLAYING
 
+    def restart_current_level(self):
+        self.scene = self.create_level_scene(self.level_index)
+        self.state = GameState.PLAYING
+
+    def pause_game(self):
+        if self.state == GameState.PLAYING:
+            self.audio.play("ui_click", volume=0.6)
+            self.state = GameState.PAUSED
+
+    def resume_game(self):
+        if self.state == GameState.PAUSED:
+            self.state = GameState.PLAYING
+
     def return_to_menu(self):
-        """Xóa scene hiện tại để quay lại menu sạch sẽ."""
+        """XĂ³a scene hiá»‡n táº¡i Ä‘á»ƒ quay láº¡i menu sáº¡ch sáº½."""
 
         self.state = GameState.MENU
         self.scene = None
@@ -460,9 +588,10 @@ class Game:
         self.dialogue_footer = ""
         self.dialogue_subtitle = ""
         self.dialogue_next_action = ""
+        self.reset_cheat_state()
 
     def configure_display(self):
-        """Tạo cửa sổ thật; phần render logic vẫn giữ ở độ phân giải cố định."""
+        """Táº¡o cá»­a sá»• tháº­t; pháº§n render logic váº«n giá»¯ á»Ÿ Ä‘á»™ phĂ¢n giáº£i cá»‘ Ä‘á»‹nh."""
 
         if self.fullscreen:
             self.window_surface = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
@@ -502,7 +631,7 @@ class Game:
         pygame.display.flip()
 
     def open_dialogue(self, script_key, next_action, subtitle="", footer="Nhấn Enter để tiếp."):
-        """Mở hội thoại nhiều trang và ghi nhớ hành động sau khi đọc xong."""
+        """Má»Ÿ há»™i thoáº¡i nhiá»u trang vĂ  ghi nhá»› hĂ nh Ä‘á»™ng sau khi Ä‘á»c xong."""
 
         self.dialogue_beats = list(self.dialogue_scripts.get(script_key, []))
         self.dialogue_index = 0
@@ -545,8 +674,57 @@ class Game:
         else:
             self.return_to_menu()
 
+    def create_level_scene(self, level_index):
+        scene = LevelScene(self.assets, self.level_specs[level_index])
+        scene.audio = self.audio
+        self.apply_cheat_state_to_scene(scene)
+        return scene
+
+    def apply_cheat_state_to_scene(self, scene):
+        scene.player_invincible = self.invincible_enabled
+
+    def reset_cheat_state(self):
+        self.cheat_buffer = ""
+        self.invincible_enabled = False
+
+    def process_cheat_input(self, event):
+        if self.state != GameState.PLAYING or event.type != pygame.KEYDOWN:
+            return
+
+        typed_char = (event.unicode or "").lower()
+        if not typed_char.isalpha():
+            return
+
+        max_length = max(len(code) for code in self.CHEAT_CODES)
+        self.cheat_buffer = (self.cheat_buffer + typed_char)[-max_length:]
+        for code, action_name in self.CHEAT_CODES.items():
+            if self.cheat_buffer.endswith(code):
+                getattr(self, action_name)()
+                self.cheat_buffer = ""
+                return
+
+    def toggle_invincibility(self):
+        self.invincible_enabled = not self.invincible_enabled
+        if self.scene:
+            self.apply_cheat_state_to_scene(self.scene)
+
+    def force_level_win(self):
+        if not self.scene or self.state != GameState.PLAYING:
+            return
+
+        if self.scene.level_spec.has_boss:
+            self.scene.hostage.rescued = True
+            if self.scene.boss:
+                self.scene.boss.health = 0
+                self.scene.boss.dead = True
+            self.scene.result_reason = f"{config.BOSS_NAME} đã bị tiêu diệt và {config.HOSTAGE_NAME} đã an toàn."
+        else:
+            self.scene.hostage.rescued = True
+            self.scene.result_reason = f"{config.HOSTAGE_NAME} đã được {config.PLAYER_NAME} giải cứu."
+        self.scene.result = "win"
+
     def describe_next_upgrade(self):
-        """Giữ lại thông tin progression để có thể dùng lại nếu UI cần."""
+        """Giá»¯ láº¡i thĂ´ng tin progression Ä‘á»ƒ cĂ³ thá»ƒ dĂ¹ng láº¡i náº¿u UI cáº§n."""
 
         current_level = min(self.level_index + 1, len(self.level_specs))
         if self.state == GameState.VICTORY:
@@ -557,7 +735,7 @@ class Game:
             return "Không còn nâng cấp."
 
         upgrade = config.upgrade_for_level(next_level)
-        return f"Mở khóa: {upgrade.title}"
+        return f"Má»Ÿ khĂ³a: {upgrade.title}"
 
 
 def main():

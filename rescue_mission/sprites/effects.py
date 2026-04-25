@@ -55,9 +55,14 @@ def build_effect_animations(assets):
         "bullet": Animation(_fallback_effect_frames((255, 235, 170), (28, 28), 4), fps=18, loop=False),
         "hit": Animation(_fallback_effect_frames((255, 110, 140), config.EFFECT_RENDER_SIZE, 4), fps=20, loop=False),
         "explosion": Animation(_fallback_effect_frames((255, 196, 120), (72, 72), 6), fps=16, loop=False),
+        "rescue": Animation(_fallback_effect_frames((255, 221, 122), (84, 84), 6), fps=18, loop=False),
         }
 
     folder_frames = assets.animation_frames.get("effects", {})
     if folder_frames:
         animations.update(build_animations_from_frames(folder_frames, config.EFFECT_ANIMATIONS))
+        if "rescue" in folder_frames:
+            animations["rescue"] = Animation(folder_frames["rescue"], fps=18, loop=False)
+    if "rescue" not in animations:
+        animations["rescue"] = Animation(_fallback_effect_frames((255, 221, 122), (84, 84), 6), fps=18, loop=False)
     return animations

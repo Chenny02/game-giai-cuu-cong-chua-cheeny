@@ -145,3 +145,26 @@ def build_animations_from_frames(frame_bank, specs):
             continue
         animations[name] = Animation(frames, fps=spec.get("fps", 10), loop=spec.get("loop", True))
     return animations
+
+
+def build_directional_animations_from_frames(frame_bank, specs):
+    """Build nested Animation dicts from directional frame folders.
+
+    `frame_bank` shape:
+    - key: state name, for example `idle`, `run`, `shoot`
+    - value: dict[token, list[Surface]]
+    """
+
+    animations = {}
+    for name, spec in specs.items():
+        state_bank = frame_bank.get(name)
+        if not state_bank:
+            continue
+        directional = {}
+        for token, frames in state_bank.items():
+            if not frames:
+                continue
+            directional[token] = Animation(frames, fps=spec.get("fps", 10), loop=spec.get("loop", True))
+        if directional:
+            animations[name] = directional
+    return animations

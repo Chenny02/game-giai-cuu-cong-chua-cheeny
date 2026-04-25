@@ -1,0 +1,205 @@
+import os
+import unittest
+
+os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+
+import pygame
+
+from rescue_mission.assets import AssetManager
+from rescue_mission.game import Game
+from rescue_mission.level_system import LevelScene, build_level_specs
+from rescue_mission.states import GameState
+
+
+class GameplayRuntimeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        pygame.init()
+        pygame.display.set_mode((1, 1))
+        cls.assets = AssetManager()
+        cls.levels = build_level_specs()
+
+    @classmethod
+    def tearDownClass(cls):
+        pygame.quit()
+
+    def make_scene(self, index):
+        return LevelScene(self.assets, self.levels[index])
+
+    def make_key_event(self, char):
+        return pygame.event.Event(pygame.KEYDOWN, key=ord(char), unicode=char)
+
+    def test_builds_all_four_levels(self):
+        self.assertEqual(4, len(self.levels))
+        self.assertFalse(self.make_scene(0).maze)
+        self.assertFalse(self.make_scene(1).maze)
+        self.assertTrue(self.make_scene(2).maze)
+        self.assertIsNotNone(self.make_scene(3).boss)
+
+    def test_player_directional_frames_load_for_all_eight_headings(self):
+        directional = self.assets.directional_animation_frames["player"]
+        expected = {"e", "se", "s", "sw", "w", "nw", "n", "ne"}
+        self.assertEqual(expected, set(directional["idle"].keys()))
+        self.assertEqual(expected, set(directional["run"].keys()))
+        self.assertEqual(expected, set(directional["shoot"].keys()))
+
+    def test_boss_and_hostage_directional_frames_load_for_all_eight_headings(self):
+        expected = {"e", "se", "s", "sw", "w", "nw", "n", "ne"}
+        boss = self.assets.directional_animation_frames["boss"]
+        hostage = self.assets.directional_animation_frames["hostage"]
+        self.assertEqual(expected, set(boss["idle"].keys()))
+        self.assertEqual(expected, set(boss["move"].keys()))
+        self.assertEqual(expected, set(hostage["idle"].keys()))
+        self.assertEqual(expected, set(hostage["walk"].keys()))
+
+    def test_level_objectives_match_design(self):
+        for index in range(3):
+            scene = self.make_scene(index)
+            scene.player.pos = pygame.Vector2(scene.hostage.pos)
+            scene.handle_collisions()
+            scene.check_objectives()
+            self.assertTrue(scene.hostage.rescued)
+            self.assertEqual("win", scene.result)
+
+        boss_scene = self.make_scene(3)
+        boss_scene.player.pos = pygame.Vector2(boss_scene.hostage.pos)
+        boss_scene.handle_collisions()
+        boss_scene.check_objectives()
+        self.assertTrue(boss_scene.hostage.rescued)
+        self.assertIsNone(boss_scene.result)
+
+        boss_scene.boss.health = 0
+        boss_scene.check_objectives()
+        self.assertEqual("win", boss_scene.result)
+
+    def test_timers_scale_with_delta_time(self):
+        scene = self.make_scene(3)
+        initial_time_left = scene.time_left
+        initial_spawn_timer = scene.spawn_timer
+        initial_primary = scene.boss.primary_timer
+        scene.update(0.5)
+        self.assertAlmostEqual(initial_time_left - 0.5, scene.time_left, places=3)
+        self.assertAlmostEqual(initial_spawn_timer - 0.5, scene.spawn_timer, places=3)
+        self.assertAlmostEqual(initial_primary - 0.5, scene.boss.primary_timer, places=3)
+
+    def test_hostage_stays_inside_world_after_rescue(self):
+        scene = self.make_scene(3)
+        scene.hostage.rescued = True
+        scene.player.pos = pygame.Vector2(scene.world_rect.left + 18, scene.world_rect.top + 18)
+
+        for _ in range(240):
+            scene.hostage.update(scene, 1 / 60)
+            self.assertTrue(scene.world_rect.collidepoint(scene.hostage.pos))
+
+    def test_hostage_does_not_enter_blocked_maze_cells(self):
+        scene = self.make_scene(2)
+        scene.hostage.rescued = True
+        scene.player.pos = pygame.Vector2(scene.maze.cell_to_world(scene.maze.player_start))
+        scene.hostage.pos = pygame.Vector2(scene.maze.cell_to_world(scene.maze.hostage_cell))
+
+        for _ in range(180):
+            scene.hostage.update(scene, 1 / 60)
+            self.assertTrue(scene.maze.is_walkable_cell(scene.maze.world_to_cell(scene.hostage.pos)))
+
+    def test_chenny_toggles_invincibility_and_blocks_damage(self):
+        game = Game()
+        game.state = GameState.PLAYING
+        game.scene = game.create_level_scene(0)
+
+        for char in "chenny":
+            game.handle_playing_event(self.make_key_event(char))
+
+        self.assertTrue(game.invincible_enabled)
+        self.assertTrue(game.scene.player_invincible)
+        health_before = game.scene.player.health
+        self.assertFalse(game.scene.player.take_damage(20, scene=game.scene))
+        self.assertEqual(health_before, game.scene.player.health)
+
+        for char in "chenny":
+            game.handle_playing_event(self.make_key_event(char))
+
+        self.assertFalse(game.invincible_enabled)
+        self.assertFalse(game.scene.player_invincible)
+        self.assertTrue(game.scene.player.take_damage(20, scene=game.scene))
+        self.assertEqual(health_before - 20, game.scene.player.health)
+
+    def test_rabbit_finishes_level_with_normal_win_flow(self):
+        game = Game()
+        game.state = GameState.PLAYING
+        game.scene = game.create_level_scene(0)
+
+        for char in "rabbit":
+            game.handle_playing_event(self.make_key_event(char))
+
+        self.assertEqual("win", game.scene.result)
+        self.assertTrue(game.scene.hostage.rescued)
+        game.update()
+        self.assertEqual(GameState.DIALOGUE, game.state)
+        self.assertEqual("next_level", game.dialogue_next_action)
+
+    def test_rabbit_finishes_boss_level_into_victory_flow(self):
+        game = Game()
+        game.level_index = len(game.level_specs) - 1
+        game.state = GameState.PLAYING
+        game.scene = game.create_level_scene(game.level_index)
+
+        for char in "rabbit":
+            game.handle_playing_event(self.make_key_event(char))
+
+        self.assertEqual("win", game.scene.result)
+        self.assertTrue(game.scene.hostage.rescued)
+        self.assertEqual(0, game.scene.boss.health)
+        game.update()
+        self.assertEqual(GameState.DIALOGUE, game.state)
+        self.assertEqual("return_to_menu", game.dialogue_next_action)
+
+    def test_invincibility_persists_across_levels_and_resets_on_menu(self):
+        game = Game()
+        game.invincible_enabled = True
+        game.scene = game.create_level_scene(0)
+        self.assertTrue(game.scene.player_invincible)
+
+        game.begin_next_level()
+        self.assertTrue(game.invincible_enabled)
+        self.assertTrue(game.scene.player_invincible)
+
+        game.return_to_menu()
+        self.assertFalse(game.invincible_enabled)
+        self.assertEqual("", game.cheat_buffer)
+
+        game.start_new_campaign()
+        self.assertFalse(game.invincible_enabled)
+        self.assertFalse(game.scene.player_invincible)
+
+    def test_escape_pauses_and_retry_recreates_current_level(self):
+        game = Game()
+        game.state = GameState.PLAYING
+        game.level_index = 1
+        game.scene = game.create_level_scene(game.level_index)
+        original_scene = game.scene
+
+        game.handle_playing_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE, unicode=""))
+        self.assertEqual(GameState.PAUSED, game.state)
+
+        game.restart_current_level()
+        self.assertEqual(GameState.PLAYING, game.state)
+        self.assertIsNot(original_scene, game.scene)
+        self.assertEqual(2, game.scene.level_spec.number)
+
+    def test_lose_flow_opens_retryable_game_over(self):
+        game = Game()
+        game.state = GameState.PLAYING
+        game.level_index = 0
+        game.scene = game.create_level_scene(game.level_index)
+        game.scene.player.health = 0
+
+        game.update()
+        self.assertEqual(GameState.GAME_OVER, game.state)
+
+        game.handle_game_over_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_r, unicode="r"))
+        self.assertEqual(GameState.PLAYING, game.state)
+        self.assertGreater(game.scene.player.health, 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,10 +1,15 @@
 from collections import Counter, deque
+import hashlib
+import math
 from pathlib import Path
 
 import pygame
 
 from . import config
 from .core.sprite_sheet import SpriteSheet
+
+
+DIRECTION_TOKENS = ("e", "se", "s", "sw", "w", "nw", "n", "ne")
 
 
 def _clamp_color(color):
@@ -59,10 +64,38 @@ def make_player_surface(size):
 def make_enemy_surface(size, primary, secondary):
     surface = pygame.Surface(size, pygame.SRCALPHA)
     rect = surface.get_rect()
-    pygame.draw.circle(surface, primary, rect.center, rect.width // 2 - 2)
-    pygame.draw.circle(surface, secondary, rect.center, rect.width // 4)
-    pygame.draw.circle(surface, (255, 255, 255), (rect.centerx - 5, rect.centery - 4), 2)
-    pygame.draw.circle(surface, (255, 255, 255), (rect.centerx + 5, rect.centery - 4), 2)
+    points = [
+        (rect.centerx, rect.top + 2),
+        (rect.right - 3, rect.centery + 2),
+        (rect.centerx + 4, rect.bottom - 3),
+        (rect.centerx, rect.bottom - 8),
+        (rect.centerx - 4, rect.bottom - 3),
+        (rect.left + 3, rect.centery + 2),
+    ]
+    pygame.draw.polygon(surface, (8, 12, 24, 150), [(x + 2, y + 2) for x, y in points])
+    pygame.draw.polygon(surface, primary, points)
+    pygame.draw.polygon(surface, secondary, [rect.center, (rect.centerx + 8, rect.centery + 2), (rect.centerx, rect.centery + 10), (rect.centerx - 8, rect.centery + 2)])
+    pygame.draw.circle(surface, (255, 255, 255), (rect.centerx - 5, rect.centery - 5), 2)
+    pygame.draw.circle(surface, (255, 255, 255), (rect.centerx + 5, rect.centery - 5), 2)
+    return surface
+
+
+def make_radial_glow(size, color, alpha_scale=1.0):
+    surface = pygame.Surface(size, pygame.SRCALPHA)
+    width, height = size
+    if width <= 0 or height <= 0:
+        return surface
+
+    center = (width / 2, height / 2)
+    rings = 18
+    for ring in range(rings, 0, -1):
+        blend = ring / rings
+        glow_w = max(8, int(width * blend))
+        glow_h = max(8, int(height * blend))
+        alpha = int(22 * blend * alpha_scale)
+        rect = pygame.Rect(0, 0, glow_w, glow_h)
+        rect.center = (int(center[0]), int(center[1]))
+        pygame.draw.ellipse(surface, (*_clamp_color(color), alpha), rect)
     return surface
 
 
@@ -256,6 +289,47 @@ def fit_surface_to_canvas(surface, canvas_size):
     return canvas
 
 
+def make_motion_variants(frame, count, mode):
+    if count <= 1:
+        return [frame]
+
+    variants = []
+    width, height = frame.get_size()
+    for index in range(count):
+        phase = (index / count) * math.tau
+        canvas = pygame.Surface((width, height), pygame.SRCALPHA)
+
+        if mode == "shoot":
+            scale = 1.0 + (0.08 if index == 0 else -0.03 if index == 1 else 0.0)
+            offset_x = -4 if index == 0 else 3 if index == 1 else 0
+            offset_y = 0
+        elif mode == "death":
+            scale = 1.0 + index * 0.045
+            offset_x = 0
+            offset_y = index * 2
+        elif mode.startswith("attack"):
+            scale = 1.0 + math.sin(phase) * 0.05
+            offset_x = -2 if index % 2 == 0 else 2
+            offset_y = -2
+        else:
+            scale = 1.0 + math.sin(phase) * 0.025
+            offset_x = int(math.sin(phase) * 2)
+            offset_y = int(math.cos(phase) * 3)
+
+        scaled_size = (max(1, int(width * scale)), max(1, int(height * scale)))
+        scaled = pygame.transform.smoothscale(frame, scaled_size)
+        if mode == "death":
+            scaled.set_alpha(max(45, 255 - index * (190 // max(1, count - 1))))
+        rect = scaled.get_rect(center=(width // 2 + offset_x, height // 2 + offset_y))
+        canvas.blit(scaled, rect)
+
+        if mode in ("shoot", "attack1", "attack2", "attack3") and index == 0:
+            glow_color = (255, 238, 170, 95) if mode == "shoot" else (255, 110, 170, 80)
+            pygame.draw.circle(canvas, glow_color, (width // 2 + width // 4, height // 2), max(7, width // 10))
+        variants.append(canvas)
+    return variants
+
+
 def prepare_alpha_surface(surface, target_size, cleanup_scale=4):
     """Chuẩn hóa sprite alpha theo kích thước đích với chi phí thấp hơn.
 
@@ -302,18 +376,19 @@ class AssetManager:
     def __init__(self):
         self.project_root = Path(config.PROJECT_ROOT)
         self.animation_root = self.project_root / "assets" / "animations"
+        self.cache_root = self.project_root / "assets" / ".processed_cache"
 
         self.font_title = pygame.font.SysFont("bahnschrift", 64, bold=True)
+        self.font_menu_hero = pygame.font.SysFont("bahnschrift", 78, bold=True)
+        self.font_menu_title = pygame.font.SysFont("bahnschrift", 58, bold=True)
+        self.font_menu_panel = pygame.font.SysFont("bahnschrift", 22, bold=True)
         self.font_h1 = pygame.font.SysFont("segoeui", 36, bold=True)
         self.font_h2 = pygame.font.SysFont("segoeui", 24, bold=True)
         self.font_body = pygame.font.SysFont("segoeui", 20)
         self.font_small = pygame.font.SysFont("consolas", 16)
 
-        self.menu_background = make_vertical_gradient(
-            (config.SCREEN_WIDTH, config.SCREEN_HEIGHT),
-            (10, 16, 34),
-            (4, 8, 16),
-        )
+        self.menu_background = self.build_menu_background()
+        self.menu_frame_overlay = self.build_menu_frame_overlay()
         self.world_background = make_vertical_gradient(
             (config.SCREEN_WIDTH, config.SCREEN_HEIGHT),
             (8, 16, 31),
@@ -361,6 +436,37 @@ class AssetManager:
                     "bullet": (28, 28),
                     "hit": config.EFFECT_RENDER_SIZE,
                     "explosion": (72, 72),
+                    "rescue": (84, 84),
+                },
+            ),
+        }
+        self.directional_animation_frames = {
+            "player": self.load_directional_animation_folders(
+                "player",
+                {
+                    "idle": config.PLAYER_RENDER_SIZE,
+                    "run": config.PLAYER_RENDER_SIZE,
+                    "shoot": config.PLAYER_RENDER_SIZE,
+                },
+            ),
+            "boss": self.load_directional_animation_folders(
+                "boss",
+                {
+                    "idle": config.BOSS_RENDER_SIZE,
+                    "move": config.BOSS_RENDER_SIZE,
+                    "attack1": config.BOSS_RENDER_SIZE,
+                    "attack2": config.BOSS_RENDER_SIZE,
+                    "attack3": config.BOSS_RENDER_SIZE,
+                    "death": (190, 160),
+                },
+            ),
+            "hostage": self.load_directional_animation_folders(
+                "hostage",
+                {
+                    "idle": config.HOSTAGE_RENDER_SIZE,
+                    "walk": config.HOSTAGE_RENDER_SIZE,
+                    "rescued": config.HOSTAGE_RENDER_SIZE,
+                    "captured": config.HOSTAGE_RENDER_SIZE,
                 },
             ),
         }
@@ -379,17 +485,65 @@ class AssetManager:
             "boss": make_boss_surface((96, 96)),
             "world_bg": self.load_optional_image("bg.png", (config.SCREEN_WIDTH, config.SCREEN_HEIGHT), alpha=False),
         }
+        self.menu_glow_blue = make_radial_glow((250, 320), (72, 208, 255), alpha_scale=0.72)
+        self.menu_glow_purple = make_radial_glow((360, 430), (182, 74, 255), alpha_scale=0.82)
+        self.menu_glow_gold = make_radial_glow((250, 330), (255, 194, 76), alpha_scale=0.72)
+        self.menu_player_portrait = self.load_menu_portrait("player", "idle", (210, 250), self.images["player"])
+        self.menu_boss_portrait = self.load_menu_portrait("boss", "idle", (350, 400), self.images["boss"])
+        self.menu_hostage_portrait = self.load_menu_portrait("hostage", "idle", (220, 340), self.images["hostage"])
 
     def load_optional_image(self, filename, size, alpha=True):
         path = self.project_root / filename
         if not path.exists():
             return None
 
-        image = pygame.image.load(str(path))
-        image = image.convert_alpha() if alpha else image.convert()
         if alpha:
-            return prepare_alpha_surface(image, size)
+            return self.load_prepared_alpha_image(path, size)
+
+        image = pygame.image.load(str(path)).convert()
         return pygame.transform.smoothscale(image, size)
+
+    def load_prepared_alpha_image(self, path, size):
+        cached = self.load_cached_prepared_image(path, size)
+        if cached is not None:
+            return cached
+
+        image = pygame.image.load(str(path)).convert_alpha()
+        prepared = prepare_alpha_surface(image, size)
+        self.save_cached_prepared_image(path, size, prepared)
+        return prepared
+
+    def cache_path_for(self, path, size):
+        try:
+            stat = path.stat()
+        except OSError:
+            return None
+
+        source_id = f"{path.relative_to(self.project_root)}|{stat.st_mtime_ns}|{stat.st_size}|{size[0]}x{size[1]}"
+        digest = hashlib.sha1(source_id.encode("utf-8")).hexdigest()
+        return self.cache_root / f"{digest}.png"
+
+    def load_cached_prepared_image(self, path, size):
+        cache_path = self.cache_path_for(path, size)
+        if cache_path is None or not cache_path.exists():
+            return None
+        try:
+            image = pygame.image.load(str(cache_path)).convert_alpha()
+        except (pygame.error, FileNotFoundError):
+            return None
+        if image.get_size() != tuple(size):
+            return None
+        return image
+
+    def save_cached_prepared_image(self, path, size, surface):
+        cache_path = self.cache_path_for(path, size)
+        if cache_path is None:
+            return
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            pygame.image.save(surface, str(cache_path))
+        except (OSError, pygame.error):
+            return
 
     def load_sprite_sheet(self, filename, columns, rows):
         path = self.project_root / filename
@@ -403,6 +557,110 @@ class AssetManager:
             if image is not None:
                 return image
         return None
+
+    def load_menu_portrait(self, entity_name, state_name, size, fallback_surface):
+        fit_overrides = {
+            "player": "tmp_player_idle_clean.png",
+            "boss": "tmp_boss_idle_clean.png",
+            "hostage": "tmp_hostage_idle_clean.png",
+        }
+        override_name = fit_overrides.get(entity_name)
+        if override_name:
+            override_path = self.project_root / override_name
+            if override_path.exists():
+                return self.load_prepared_alpha_image(override_path, size)
+
+        state_dir = self.animation_root / entity_name / state_name
+        if state_dir.exists():
+            for image_path in sorted(state_dir.glob("*.png")):
+                return self.load_prepared_alpha_image(image_path, size)
+        return fit_surface_to_canvas(fallback_surface, size)
+
+    def build_menu_background(self):
+        surface = make_vertical_gradient(
+            (config.SCREEN_WIDTH, config.SCREEN_HEIGHT),
+            (18, 14, 42),
+            (5, 8, 18),
+        )
+        surface.blit(make_radial_glow((760, 520), (140, 66, 255), alpha_scale=1.5), (210, 18), special_flags=pygame.BLEND_RGBA_ADD)
+        surface.blit(make_radial_glow((360, 280), (74, 214, 255), alpha_scale=1.2), (-40, 190), special_flags=pygame.BLEND_RGBA_ADD)
+        surface.blit(make_radial_glow((360, 280), (255, 181, 82), alpha_scale=0.9), (850, 230), special_flags=pygame.BLEND_RGBA_ADD)
+
+        for x in range(0, config.SCREEN_WIDTH, 48):
+            top = 24 + int(14 * math.sin(x / 120))
+            pygame.draw.line(surface, (22, 34, 72), (x, 0), (x + 22, top), 1)
+        for idx in range(28):
+            px = 40 + idx * 40
+            py = 36 + (idx * 29) % 160
+            color = (255, 205, 96) if idx % 5 == 0 else (164, 184, 214)
+            surface.fill(color, ((px, py), (2, 2)))
+
+        horizon = config.SCREEN_HEIGHT - 176
+        ridge_points = [
+            (0, horizon + 54),
+            (92, horizon + 34),
+            (176, horizon + 60),
+            (264, horizon + 22),
+            (356, horizon + 72),
+            (446, horizon + 28),
+            (548, horizon + 56),
+            (658, horizon + 12),
+            (778, horizon + 58),
+            (898, horizon + 22),
+            (1020, horizon + 72),
+            (1116, horizon + 36),
+            (config.SCREEN_WIDTH, horizon + 58),
+            (config.SCREEN_WIDTH, config.SCREEN_HEIGHT),
+            (0, config.SCREEN_HEIGHT),
+        ]
+        pygame.draw.polygon(surface, (20, 16, 44), ridge_points)
+
+        castle_color = (12, 16, 34)
+        accent_color = (56, 34, 94)
+        towers = [
+            pygame.Rect(486, horizon - 48, 42, 128),
+            pygame.Rect(558, horizon - 98, 54, 178),
+            pygame.Rect(646, horizon - 64, 46, 144),
+        ]
+        for tower in towers:
+            pygame.draw.rect(surface, castle_color, tower)
+            pygame.draw.rect(surface, accent_color, tower.inflate(-24, -34), border_radius=6)
+            roof = [(tower.x - 8, tower.y + 10), (tower.centerx, tower.y - 34), (tower.right + 8, tower.y + 10)]
+            pygame.draw.polygon(surface, (30, 24, 62), roof)
+
+        for chain_x in (268, 886):
+            for segment in range(10):
+                y = 18 + segment * 34
+                link = pygame.Rect(chain_x + (segment % 2) * 8, y, 22, 12)
+                pygame.draw.ellipse(surface, (28, 32, 60), link, 3)
+
+        fog = pygame.Surface((config.SCREEN_WIDTH, 220), pygame.SRCALPHA)
+        for row in range(12):
+            alpha = 18 + row * 6
+            pygame.draw.ellipse(
+                fog,
+                (120, 54, 192, alpha),
+                pygame.Rect(-90 + row * 18, 26 + row * 8, config.SCREEN_WIDTH - row * 12, 140),
+            )
+        surface.blit(fog, (0, config.SCREEN_HEIGHT - 220))
+        return surface.convert()
+
+    def build_menu_frame_overlay(self):
+        surface = pygame.Surface((config.SCREEN_WIDTH, config.SCREEN_HEIGHT), pygame.SRCALPHA)
+        outer = pygame.Rect(16, 16, config.SCREEN_WIDTH - 32, config.SCREEN_HEIGHT - 32)
+        inner = outer.inflate(-20, -20)
+        pygame.draw.rect(surface, (62, 112, 210, 92), outer, width=2, border_radius=18)
+        pygame.draw.rect(surface, (28, 46, 88, 180), inner, width=1, border_radius=16)
+
+        corners = [
+            ((outer.left, outer.top + 36), (outer.left, outer.top), (outer.left + 36, outer.top)),
+            ((outer.right - 36, outer.top), (outer.right, outer.top), (outer.right, outer.top + 36)),
+            ((outer.left, outer.bottom - 36), (outer.left, outer.bottom), (outer.left + 36, outer.bottom)),
+            ((outer.right - 36, outer.bottom), (outer.right, outer.bottom), (outer.right, outer.bottom - 36)),
+        ]
+        for points in corners:
+            pygame.draw.lines(surface, (114, 196, 255, 155), False, points, 3)
+        return surface
 
     def load_animation_folders(self, entity_name, state_sizes):
         """Load frame rời từ thư mục.
@@ -426,11 +684,90 @@ class AssetManager:
 
             frames = []
             for image_path in sorted(state_dir.glob("*.png")):
-                image = pygame.image.load(str(image_path)).convert_alpha()
-                image = prepare_alpha_surface(image, size)
-                frames.append(image)
+                frames.append(self.load_prepared_alpha_image(image_path, size))
 
             if frames:
-                loaded[state_name] = frames
+                loaded[state_name] = self.expand_loose_frames(entity_name, state_name, frames)
 
         return loaded
+
+    def load_directional_animation_folders(self, entity_name, state_sizes):
+        entity_root = self.animation_root / entity_name
+        loaded = {}
+        if not entity_root.exists():
+            return loaded
+
+        for state_name, size in state_sizes.items():
+            state_dir = entity_root / f"{state_name}_8dir"
+            if not state_dir.exists():
+                continue
+
+            state_bank = {}
+            for token in DIRECTION_TOKENS:
+                frames = []
+                exact = state_dir / f"{token}.png"
+                if exact.exists():
+                    frames.append(self.load_prepared_alpha_image(exact, size))
+                for image_path in sorted(state_dir.glob(f"{token}_*.png")):
+                    frames.append(self.load_prepared_alpha_image(image_path, size))
+                if len(frames) == 1:
+                    frames = self.expand_directional_frames(state_name, frames[0])
+                if frames:
+                    state_bank[token] = frames
+
+            if state_bank:
+                loaded[state_name] = state_bank
+
+        idle_bank = loaded.get("idle")
+        if idle_bank:
+            synthesized_by_entity = {
+                "player": {
+                    "run": ("run", 4),
+                    "shoot": ("shoot", 3),
+                },
+                "boss": {
+                    "move": ("run", 4),
+                    "attack1": ("attack1", 4),
+                    "attack2": ("attack2", 4),
+                    "attack3": ("attack3", 3),
+                    "death": ("death", 5),
+                },
+                "hostage": {
+                    "walk": ("run", 4),
+                    "rescued": ("idle", 3),
+                    "captured": ("idle", 3),
+                },
+            }
+            synthesized = synthesized_by_entity.get(entity_name, {})
+            for state_name, (mode, count) in synthesized.items():
+                if state_name in loaded:
+                    continue
+                loaded[state_name] = {
+                    token: make_motion_variants(frames[0], count, mode)
+                    for token, frames in idle_bank.items()
+                    if frames
+                }
+
+        return loaded
+
+    def expand_loose_frames(self, entity_name, state_name, frames):
+        """Give single-frame placeholder states enough motion for playtests."""
+
+        if len(frames) != 1:
+            return frames
+
+        desired_counts = {
+            "player": {"run": 4, "shoot": 3},
+            "boss": {"move": 4, "attack1": 4, "attack2": 4, "attack3": 3, "death": 5},
+            "hostage": {"walk": 4, "rescued": 3, "captured": 3},
+        }
+        count = desired_counts.get(entity_name, {}).get(state_name, 1)
+        return make_motion_variants(frames[0], count, state_name)
+
+    def expand_directional_frames(self, state_name, frame):
+        desired_counts = {
+            "run": 4,
+            "shoot": 3,
+        }
+        count = desired_counts.get(state_name, 1)
+        return make_motion_variants(frame, count, state_name) if count > 1 else [frame]
