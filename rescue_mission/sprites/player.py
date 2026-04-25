@@ -1,4 +1,4 @@
-"""Player animated bằng sprite sheet."""
+"""Player sprite and gameplay control."""
 
 import math
 
@@ -13,6 +13,7 @@ from ..core.animation import (
     build_directional_animations_from_frames,
 )
 from ..entities import Actor, Bullet, safe_normalize
+from ..player_skill import PlayerSkillController
 
 
 def _fallback_player_animations(assets):
@@ -48,8 +49,6 @@ def _direction_token_from_vector(vector):
 
 
 class Player(Actor):
-    """Player có state animation: idle, run, shoot và xoay theo chuột."""
-
     def __init__(self, pos, assets, stats):
         super().__init__(pos)
         self.stats = stats
@@ -62,13 +61,17 @@ class Player(Actor):
         self.invulnerable_duration = config.PLAYER_IFRAMES / config.FPS
         self.invulnerable_timer = 0.0
         self.shoot_anim_timer = 0.0
+        self.cast_anim_timer = 0.0
         self.muzzle_flash_duration = 0.08
         self.muzzle_timer = 0.0
         self.aim_direction = pygame.Vector2(1, 0)
+        self.last_move_direction = pygame.Vector2(1, 0)
         self.flip_x = False
         self.direction_token = "e"
         self.last_direction_token = "e"
         self.directional_state = None
+        self.skill = PlayerSkillController()
+        self.skill_pressed_last_frame = False
 
         folder_frames = assets.animation_frames.get("player", {})
         directional_frames = assets.directional_animation_frames.get("player", {})
@@ -78,7 +81,6 @@ class Player(Actor):
         else:
             animations = _fallback_player_animations(assets)
 
-        # State nào đã có frame rời trong thư mục sẽ ghi đè lên fallback.
         if folder_frames:
             animations.update(build_animations_from_frames(folder_frames, config.PLAYER_ANIMATIONS))
         self.animation_manager = AnimationManager(animations, initial_state="idle", angle_step=10)
@@ -93,16 +95,23 @@ class Player(Actor):
         )
         if input_vector.length_squared() > 0:
             input_vector = input_vector.normalize()
+            self.last_move_direction = pygame.Vector2(input_vector)
 
         self.move(input_vector * self.stats.move_speed * delta_time * config.FPS, scene)
         self.fire_timer = max(0.0, self.fire_timer - delta_time)
         self.invulnerable_timer = max(0.0, self.invulnerable_timer - delta_time)
         self.shoot_anim_timer = max(0.0, self.shoot_anim_timer - delta_time)
+        self.cast_anim_timer = max(0.0, self.cast_anim_timer - delta_time)
         self.muzzle_timer = max(0.0, self.muzzle_timer - delta_time)
+        self.skill.update(delta_time)
 
         mouse_pos = pygame.Vector2(getattr(scene, "mouse_pos", pygame.mouse.get_pos()))
         aim_vector = mouse_pos - self.pos
-        self.aim_direction = safe_normalize(aim_vector)
+        if aim_vector.length_squared() > 0:
+            self.aim_direction = safe_normalize(aim_vector)
+        else:
+            self.aim_direction = safe_normalize(self.last_move_direction)
+
         self.direction_token = _direction_token_from_vector(self.aim_direction)
         angle = -self.aim_direction.angle_to(pygame.Vector2(1, 0))
         self.flip_x = self.aim_direction.x < -0.2
@@ -114,7 +123,13 @@ class Player(Actor):
             self.shoot_anim_timer = 0.12
             self.muzzle_timer = self.muzzle_flash_duration
 
-        if self.shoot_anim_timer > 0:
+        skill_pressed = bool(keys[pygame.K_q])
+        if skill_pressed and not self.skill_pressed_last_frame:
+            if self.skill.try_cast(self, scene, self.aim_direction):
+                self.cast_anim_timer = 0.18
+        self.skill_pressed_last_frame = skill_pressed
+
+        if self.cast_anim_timer > 0 or self.shoot_anim_timer > 0:
             current_state = "shoot"
         elif input_vector.length_squared() > 0:
             current_state = "run"

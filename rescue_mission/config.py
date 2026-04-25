@@ -31,14 +31,23 @@ PLAYER_BASE_BULLET_SPEED = 12.5
 PLAYER_BASE_BULLET_DAMAGE = 18
 PLAYER_IFRAMES = 18
 
+PLAYER_SKILL_NAME = "Energy Shot"
+PLAYER_SKILL_KEY_LABEL = "Q"
+PLAYER_SKILL_DAMAGE = 52
+PLAYER_SKILL_SPEED = 10.8
+PLAYER_SKILL_LIFETIME = 1.15
+PLAYER_SKILL_COOLDOWN = 1.2
+PLAYER_SKILL_ENERGY_MAX = 100
+PLAYER_SKILL_ENERGY_COST = 35
+PLAYER_SKILL_ENERGY_REGEN = 17
+PLAYER_SKILL_KNOCKBACK = 18
+
 TILE_SIZE = 24
 MAZE_WIDTH = 45
 MAZE_HEIGHT = 25
 
 BOSS_HEALTH = 420
 
-# Hai file PNG hien tai la atlas thu cong, khong phai sprite sheet grid deu.
-# Vi vay mapping duoc khai bao bang tung "section" that trong anh.
 CHARACTER_SHEET_COLUMNS = 1
 CHARACTER_SHEET_ROWS = 1
 BOSS_SHEET_COLUMNS = 1
@@ -52,11 +61,6 @@ EFFECT_RENDER_SIZE = (48, 48)
 AnimationSpec = Dict[str, object]
 
 PLAYER_ANIMATIONS: Dict[str, AnimationSpec] = {
-    # character.png:
-    # - IDLE: 4 frame
-    # - WALK: 4 frame
-    # - RUN: 4 frame
-    # - SHOOT: 3 frame
     "idle": {
         "sections": [(470, 72, 660, 236, 4)],
         "fps": 7,
@@ -81,13 +85,6 @@ PLAYER_ANIMATIONS: Dict[str, AnimationSpec] = {
 }
 
 BOSS_ANIMATIONS: Dict[str, AnimationSpec] = {
-    # boss.png:
-    # - IDLE: 3 frame
-    # - MOVE: 4 frame
-    # - ATTACK 1: 8 frame (2 cum, moi cum 4 frame)
-    # - ATTACK 2: 4 frame
-    # - ATTACK 3: 1 keyframe lon cho laser
-    # - DEATH: 5 frame
     "idle": {
         "sections": [(430, 30, 390, 145, 3)],
         "fps": 6,
@@ -120,7 +117,6 @@ BOSS_ANIMATIONS: Dict[str, AnimationSpec] = {
         "pad": 8,
     },
     "attack3": {
-        # Row laser co ca tia rat dai; chi cat phan than boss de hitbox khong bi phong to.
         "sections": [(860, 295, 150, 130, 1)],
         "fps": 10,
         "loop": False,
@@ -137,7 +133,6 @@ BOSS_ANIMATIONS: Dict[str, AnimationSpec] = {
 }
 
 HOSTAGE_ANIMATIONS: Dict[str, AnimationSpec] = {
-    # Princess o nua duoi boss.png.
     "idle": {
         "sections": [(320, 615, 515, 120, 6)],
         "fps": 6,
@@ -169,8 +164,6 @@ HOSTAGE_ANIMATIONS: Dict[str, AnimationSpec] = {
 }
 
 EFFECT_ANIMATIONS: Dict[str, AnimationSpec] = {
-    # Khu assets chi la icon/effect don, khong phai sequence nhieu frame.
-    # Van dong goi chung Animation de dung chung pipeline update/draw.
     "bullet": {
         "rects": [(910, 610, 90, 80)],
         "fps": 18,
@@ -208,6 +201,8 @@ COLOR_GRID = (22, 40, 72)
 COLOR_SHADOW = (2, 6, 14)
 COLOR_MAZE_WALL = (46, 72, 108)
 COLOR_MAZE_WALL_ALT = (28, 43, 68)
+COLOR_SKILL = (86, 226, 255)
+COLOR_SKILL_DIM = (40, 108, 148)
 
 
 @dataclass(frozen=True)
@@ -225,11 +220,68 @@ class UpgradeInfo:
     description: str
 
 
+@dataclass(frozen=True)
+class BossProfile:
+    key: str
+    display_name: str
+    max_health: int
+    move_speed: float
+    desired_range: float
+    primary_damage: int
+    primary_speed: float
+    secondary_damage: int
+    secondary_speed: float
+    phase_count: int
+    summon_enabled: bool
+    summon_cooldown: float
+    contact_damage: int
+    primary_color: Tuple[int, int, int]
+    secondary_color: Tuple[int, int, int]
+
+
+BOSS_PROFILES = {
+    "aegis_prime": BossProfile(
+        key="aegis_prime",
+        display_name="AEGIS PRIME",
+        max_health=320,
+        move_speed=2.05,
+        desired_range=155,
+        primary_damage=17,
+        primary_speed=10.2,
+        secondary_damage=14,
+        secondary_speed=7.0,
+        phase_count=2,
+        summon_enabled=False,
+        summon_cooldown=999.0,
+        contact_damage=22,
+        primary_color=(255, 150, 96),
+        secondary_color=(255, 204, 110),
+    ),
+    "orion_prime": BossProfile(
+        key="orion_prime",
+        display_name=BOSS_NAME,
+        max_health=560,
+        move_speed=2.2,
+        desired_range=190,
+        primary_damage=20,
+        primary_speed=11.0,
+        secondary_damage=16,
+        secondary_speed=7.8,
+        phase_count=3,
+        summon_enabled=True,
+        summon_cooldown=3.8,
+        contact_damage=28,
+        primary_color=(255, 154, 91),
+        secondary_color=(219, 132, 255),
+    ),
+}
+
+
 def player_stats_for_level(level_number: int) -> PlayerStats:
     return PlayerStats(
-        move_speed=PLAYER_BASE_SPEED + 0.25 * (level_number - 1),
+        move_speed=PLAYER_BASE_SPEED + 0.22 * (level_number - 1),
         fire_interval=max(6, PLAYER_BASE_FIRE_INTERVAL - (level_number - 1)),
-        bullet_speed=PLAYER_BASE_BULLET_SPEED + 0.7 * (level_number - 1),
+        bullet_speed=PLAYER_BASE_BULLET_SPEED + 0.55 * (level_number - 1),
         bullet_damage=PLAYER_BASE_BULLET_DAMAGE + 3 * (level_number - 1),
         max_health=PLAYER_BASE_HEALTH + 10 * (level_number - 1),
     )
@@ -239,7 +291,9 @@ def upgrade_for_level(level_number: int) -> UpgradeInfo:
     upgrades = {
         1: UpgradeInfo("Trang bị I", "Di chuyển cơ bản, súng ổn định."),
         2: UpgradeInfo("Nhịp chiến đấu", "Bắn nhanh hơn, sát thương cao hơn."),
-        3: UpgradeInfo("Bộ mê cung", "Cơ động tốt hơn trong hành lang hẹp."),
-        4: UpgradeInfo("Tổng tấn công", "Giáp dày hơn, đạn bay nhanh hơn."),
+        3: UpgradeInfo("Dấu dẫn đường", "Mê cung lộ tuyến chính rõ hơn."),
+        4: UpgradeInfo("Energy Shot", "Mở kỹ năng bắn chưởng bằng phím Q."),
+        5: UpgradeInfo("Áp lực tổng hợp", "Địch đông hơn, xuất hiện miniboss."),
+        6: UpgradeInfo("Giao tranh cuối", "Đấu trường boss hoàn chỉnh."),
     }
     return upgrades[level_number]

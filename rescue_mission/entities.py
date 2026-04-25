@@ -90,6 +90,19 @@ ENEMY_TYPES = {
         sprite_key="enemy_shooter",
         bullet_color=(204, 168, 255),
     ),
+    "brute": EnemyType(
+        key="brute",
+        label="Brute",
+        speed=1.8,
+        max_health=72,
+        score_value=52,
+        contact_damage=22,
+        fire_interval=0,
+        bullet_speed=0,
+        preferred_range=0,
+        sprite_key="enemy_grunt",
+        bullet_color=(255, 170, 92),
+    ),
 }
 
 
@@ -330,8 +343,12 @@ class Enemy(Actor):
         self.path_timer = random.randint(8, 18) / config.FPS
         self.path = []
         self.strafe_dir = random.choice([-1, 1])
-        self.set_hitbox(16 if enemy_type.key != "shooter" else 18)
-        self.set_base_image(assets.images[enemy_type.sprite_key])
+        hitbox = 22 if enemy_type.key == "brute" else 16 if enemy_type.key != "shooter" else 18
+        self.set_hitbox(hitbox)
+        sprite = assets.images[enemy_type.sprite_key]
+        if enemy_type.key == "brute":
+            sprite = tint_surface(sprite, (110, 42, 18), alpha=55)
+        self.set_base_image(sprite)
 
     def update(self, scene, delta_time):
         # Enemy maze ưu tiên pathfinding, enemy màn thường ưu tiên AI theo range.

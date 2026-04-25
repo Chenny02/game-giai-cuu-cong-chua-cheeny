@@ -108,6 +108,29 @@ def make_hostage_surface(size):
     return surface
 
 
+def make_rabbit_surface(size):
+    surface = pygame.Surface(size, pygame.SRCALPHA)
+    rect = surface.get_rect()
+    pygame.draw.ellipse(surface, (250, 248, 245), (rect.centerx - 16, 4, 12, 34), border_radius=10)
+    pygame.draw.ellipse(surface, (250, 248, 245), (rect.centerx + 4, 4, 12, 34), border_radius=10)
+    pygame.draw.ellipse(surface, (250, 180, 180), (rect.centerx - 13, 9, 6, 22), border_radius=8)
+    pygame.draw.ellipse(surface, (250, 180, 180), (rect.centerx + 7, 9, 6, 22), border_radius=8)
+    pygame.draw.circle(surface, (252, 251, 248), (rect.centerx, rect.centery - 2), 20)
+    pygame.draw.circle(surface, (255, 215, 220), (rect.centerx - 9, rect.centery + 2), 5)
+    pygame.draw.circle(surface, (255, 215, 220), (rect.centerx + 9, rect.centery + 2), 5)
+    pygame.draw.circle(surface, (255, 255, 255), (rect.centerx - 10, rect.centery - 4), 2)
+    pygame.draw.circle(surface, (255, 255, 255), (rect.centerx + 10, rect.centery - 4), 2)
+    pygame.draw.circle(surface, (53, 35, 24), (rect.centerx - 10, rect.centery - 4), 3)
+    pygame.draw.circle(surface, (53, 35, 24), (rect.centerx + 10, rect.centery - 4), 3)
+    pygame.draw.circle(surface, (212, 136, 120), (rect.centerx, rect.centery + 6), 4)
+    pygame.draw.rect(surface, (34, 42, 60), (rect.centerx - 14, rect.centery + 16, 28, 28), border_radius=10)
+    pygame.draw.rect(surface, (214, 176, 84), (rect.centerx - 14, rect.centery + 16, 28, 28), width=2, border_radius=10)
+    pygame.draw.circle(surface, (210, 168, 66), (rect.centerx - 10, rect.centery - 4), 8, 1)
+    pygame.draw.circle(surface, (210, 168, 66), (rect.centerx + 10, rect.centery - 4), 8, 1)
+    pygame.draw.line(surface, (210, 168, 66), (rect.centerx - 2, rect.centery - 4), (rect.centerx + 2, rect.centery - 4), 1)
+    return surface
+
+
 def make_boss_surface(size):
     surface = pygame.Surface(size, pygame.SRCALPHA)
     rect = surface.get_rect()
@@ -483,6 +506,7 @@ class AssetManager:
             "enemy_runner": make_enemy_surface((26, 26), (255, 169, 55), (255, 228, 175)),
             "enemy_shooter": make_enemy_surface((32, 32), (134, 94, 255), (219, 208, 255)),
             "boss": make_boss_surface((96, 96)),
+            "rabbit_companion": self.load_optional_image("rabbit_easter.png", (76, 100), alpha=True) or make_rabbit_surface((76, 100)),
             "world_bg": self.load_optional_image("bg.png", (config.SCREEN_WIDTH, config.SCREEN_HEIGHT), alpha=False),
         }
         self.menu_glow_blue = make_radial_glow((250, 320), (72, 208, 255), alpha_scale=0.72)

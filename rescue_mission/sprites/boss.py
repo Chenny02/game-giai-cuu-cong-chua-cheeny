@@ -1,7 +1,7 @@
-"""Boss animated bằng boss sprite sheet với state machine nhiều phase."""
+"""Boss sprite and combat logic."""
 
-import random
 import math
+import random
 
 import pygame
 
@@ -52,29 +52,18 @@ def _direction_token_from_vector(vector):
 
 
 class Boss(Actor):
-    """Boss level 4 có phase và pattern tấn công riêng.
-
-    Phase 1:
-    - idle / move / attack1
-
-    Phase 2:
-    - thêm attack2
-
-    Phase 3:
-    - thêm attack3
-    - tăng tốc
-    """
-
-    def __init__(self, pos, assets):
+    def __init__(self, pos, assets, profile):
         super().__init__(pos)
-        self.max_health = config.BOSS_HEALTH
+        self.profile = profile
+        self.display_name = profile.display_name
+        self.max_health = profile.max_health
         self.health = self.max_health
         self.phase = 1
         self.set_hitbox(76, 76)
 
-        self.primary_timer = 0.7
-        self.secondary_timer = 2.0
-        self.summon_timer = 5.0
+        self.primary_timer = 0.75
+        self.secondary_timer = 2.25
+        self.summon_timer = profile.summon_cooldown
         self.action_timer = 0.0
         self.attack_windup = 0.0
         self.pending_attack = None
@@ -115,8 +104,8 @@ class Boss(Actor):
         to_player = scene.player.pos - self.pos
         direction = safe_normalize(to_player)
         distance = to_player.length() if to_player.length_squared() > 0 else 0.0
-        desired_range = 220 if self.phase == 1 else 170
-        move_speed = (1.6 + self.phase * 0.35) * config.FPS
+        desired_range = self.profile.desired_range - (18 * (self.phase - 1))
+        move_speed = (self.profile.move_speed + self.phase * 0.18) * config.FPS
         angle = -direction.angle_to(pygame.Vector2(1, 0))
         self.direction_token = _direction_token_from_vector(direction)
 
@@ -124,11 +113,11 @@ class Boss(Actor):
         if distance > desired_range:
             self.pos += direction * move_speed * delta_time
             moved = True
-        elif distance < desired_range - 70:
-            self.pos -= direction * (move_speed * 0.7) * delta_time
+        elif distance < desired_range - 65:
+            self.pos -= direction * (move_speed * 0.72) * delta_time
             moved = True
         else:
-            strafe_speed = 0.65 * config.FPS
+            strafe_speed = 0.72 * config.FPS
             self.pos += pygame.Vector2(-direction.y, direction.x) * (strafe_speed * random.choice([-1, 1]) * delta_time)
             moved = True
 
@@ -137,36 +126,47 @@ class Boss(Actor):
         self.pos.y = max(scene.world_rect.top + radius, min(scene.world_rect.bottom - radius, self.pos.y))
 
         attack_state = None
+        phase_pressure = 0.1 if self.profile.key == "orion_prime" and self.phase >= 3 else 0.0
+
         if self.pending_attack and self.attack_windup <= 0.0:
             if self.pending_attack == "primary":
                 self.fire_primary(scene)
-                self.primary_timer = max(0.28, 0.75 - self.phase * 0.12)
+                self.primary_timer = max(0.22, 0.82 - self.phase * 0.12 - phase_pressure)
                 attack_state = "attack1"
             else:
                 self.fire_secondary(scene)
-                self.secondary_timer = max(0.9, 2.4 - self.phase * 0.35)
-                attack_state = "attack2" if self.phase == 2 else "attack3"
+                self.secondary_timer = max(0.7, 2.35 - self.phase * 0.3 - phase_pressure)
+                attack_state = "attack2" if self.phase < 3 else "attack3"
             self.pending_attack = None
-            self.action_timer = 0.22 if attack_state == "attack1" else 0.35
+            self.action_timer = 0.22 if attack_state == "attack1" else 0.36
         elif not self.pending_attack and self.primary_timer <= 0.0:
             self.pending_attack = "primary"
-            self.attack_windup = 0.22
+            self.attack_windup = 0.22 if self.profile.key == "orion_prime" and self.phase >= 3 else 0.24
             self.action_timer = self.attack_windup
             attack_state = "attack1"
-            scene.add_burst(self.pos, (255, 154, 91), 24)
+            scene.add_burst(self.pos, self.profile.primary_color, 24)
             if getattr(scene, "audio", None):
-                scene.audio.play("boss_attack", volume=0.55)
+                scene.audio.play("boss_attack", volume=0.56)
         elif not self.pending_attack and self.phase >= 2 and self.secondary_timer <= 0.0:
             self.pending_attack = "secondary"
-            self.attack_windup = 0.34
+            self.attack_windup = 0.28 if self.profile.key == "orion_prime" and self.phase >= 3 else 0.34
             self.action_timer = self.attack_windup
-            attack_state = "attack2" if self.phase == 2 else "attack3"
-            scene.add_burst(self.pos, (219, 132, 255), 32)
+            attack_state = "attack2" if self.phase < 3 else "attack3"
+            scene.add_burst(self.pos, self.profile.secondary_color, 30)
             if getattr(scene, "audio", None):
-                scene.audio.play("boss_attack", volume=0.7)
-        elif not self.pending_attack and self.phase >= 2 and self.summon_timer <= 0.0 and len(scene.enemies) < scene.level_spec.max_enemies:
-            scene.spawn_enemy(forced_type="runner" if self.phase == 3 else "grunt")
-            self.summon_timer = max(2.2, 5.0 - self.phase * 0.7)
+                scene.audio.play("boss_attack", volume=0.72)
+        elif (
+            not self.pending_attack
+            and self.profile.summon_enabled
+            and self.phase >= 2
+            and self.summon_timer <= 0.0
+            and len(scene.enemies) < scene.level_spec.max_enemies
+        ):
+            forced_type = "runner" if self.phase == 2 else "brute"
+            scene.spawn_enemy(forced_type=forced_type)
+            if self.profile.key == "orion_prime" and self.phase >= 3 and len(scene.enemies) < scene.level_spec.max_enemies:
+                scene.spawn_enemy(forced_type="runner")
+            self.summon_timer = max(2.3, self.profile.summon_cooldown - self.phase * 0.6)
 
         current_state = "idle"
         if self.action_timer > 0 and attack_state is not None:
@@ -175,8 +175,6 @@ class Boss(Actor):
             current_state = self.directional_state or self.animation_manager.state
         elif moved:
             current_state = "move"
-        else:
-            current_state = "idle"
 
         self.render_state(delta_time, current_state, direction, angle)
         self.update_visual()
@@ -200,36 +198,59 @@ class Boss(Actor):
         self.set_base_image(self.animation_manager.get_image(angle=angle))
 
     def get_phase(self):
-        ratio = self.health / self.max_health
-        if ratio <= 0.33:
-            return 3
-        if ratio <= 0.66:
-            return 2
-        return 1
+        ratio = self.health / max(1, self.max_health)
+        if self.profile.phase_count >= 3:
+            if ratio <= 0.33:
+                return 3
+            if ratio <= 0.66:
+                return 2
+            return 1
+        return 2 if ratio <= 0.5 else 1
 
     def fire_primary(self, scene):
         direction = safe_normalize(scene.player.pos - self.pos)
+        if self.profile.key == "aegis_prime":
+            spread_angles = [-16, -6, 6, 16] if self.phase == 1 else [-24, -12, 0, 12, 24, 36]
+            for angle in spread_angles:
+                scene.spawn_bullet(
+                    self.pos,
+                    direction.rotate(angle),
+                    self.profile.primary_speed,
+                    self.profile.primary_damage,
+                    False,
+                    self.profile.primary_color,
+                )
+            return
+
         if self.phase == 1:
-            scene.spawn_bullet(self.pos, direction, 8.6, 14, False, (255, 154, 91))
+            scene.spawn_bullet(self.pos, direction, self.profile.primary_speed - 1.0, self.profile.primary_damage - 3, False, self.profile.primary_color)
         elif self.phase == 2:
             for angle in [-16, -8, 0, 8, 16]:
-                scene.spawn_bullet(self.pos, direction.rotate(angle), 9.2, 15, False, (255, 154, 91))
+                scene.spawn_bullet(self.pos, direction.rotate(angle), self.profile.primary_speed - 0.4, self.profile.primary_damage - 2, False, self.profile.primary_color)
         else:
-            for angle in [-20, -10, 0, 10, 20]:
-                scene.spawn_bullet(self.pos, direction.rotate(angle), 10.4, 17, False, (255, 188, 122))
+            for angle in [-30, -20, -10, 0, 10, 20, 30]:
+                scene.spawn_bullet(self.pos, direction.rotate(angle), self.profile.primary_speed, self.profile.primary_damage, False, self.profile.primary_color)
 
     def fire_secondary(self, scene):
+        if self.profile.key == "aegis_prime":
+            projectile_count = 10 + self.phase * 2
+            for index in range(projectile_count):
+                direction = make_vector_from_angle(index * (360 / projectile_count))
+                scene.spawn_bullet(self.pos, direction, self.profile.secondary_speed, self.profile.secondary_damage, False, self.profile.secondary_color)
+            scene.add_effect("explosion", self.pos)
+            return
+
         if self.phase == 2:
             for index in range(10):
-                scene.spawn_bullet(self.pos, make_vector_from_angle(index * 36), 6.4, 12, False, (206, 120, 255))
+                scene.spawn_bullet(self.pos, make_vector_from_angle(index * 36), self.profile.secondary_speed - 0.8, self.profile.secondary_damage - 2, False, self.profile.secondary_color)
             scene.add_effect("explosion", self.pos)
         else:
-            for index in range(14):
-                direction = make_vector_from_angle(index * (360 / 14) + scene.frame_count * 0.7)
-                scene.spawn_bullet(self.pos, direction, 7.2, 13, False, (219, 132, 255))
+            for index in range(18):
+                direction = make_vector_from_angle(index * (360 / 18) + scene.frame_count * 0.7)
+                scene.spawn_bullet(self.pos, direction, self.profile.secondary_speed, self.profile.secondary_damage, False, self.profile.secondary_color)
             direction = safe_normalize(scene.player.pos - self.pos)
-            for angle in [-12, 0, 12]:
-                scene.spawn_bullet(self.pos, direction.rotate(angle), 11.2, 17, False, (255, 108, 162))
+            for angle in [-18, -9, 0, 9, 18]:
+                scene.spawn_bullet(self.pos, direction.rotate(angle), self.profile.primary_speed + 1.0, self.profile.primary_damage + 1, False, (255, 108, 162))
             scene.add_effect("explosion", self.pos)
 
     def take_damage(self, amount):

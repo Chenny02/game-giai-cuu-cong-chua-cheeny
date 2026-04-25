@@ -6,6 +6,7 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 import pygame
 
 from rescue_mission.assets import AssetManager
+from rescue_mission.entities import ENEMY_TYPES, Enemy
 from rescue_mission.game import Game
 from rescue_mission.level_system import LevelScene, build_level_specs
 from rescue_mission.states import GameState
@@ -29,12 +30,15 @@ class GameplayRuntimeTests(unittest.TestCase):
     def make_key_event(self, char):
         return pygame.event.Event(pygame.KEYDOWN, key=ord(char), unicode=char)
 
-    def test_builds_all_four_levels(self):
-        self.assertEqual(4, len(self.levels))
+    def test_builds_all_six_levels(self):
+        self.assertEqual(6, len(self.levels))
         self.assertFalse(self.make_scene(0).maze)
         self.assertFalse(self.make_scene(1).maze)
         self.assertTrue(self.make_scene(2).maze)
-        self.assertIsNotNone(self.make_scene(3).boss)
+        self.assertFalse(self.make_scene(3).level_spec.has_boss)
+        self.assertIsNotNone(self.make_scene(4).boss)
+        self.assertIsNotNone(self.make_scene(5).boss)
+        self.assertTrue(self.make_scene(2).level_spec.guidance_enabled)
 
     def test_player_directional_frames_load_for_all_eight_headings(self):
         directional = self.assets.directional_animation_frames["player"]
@@ -61,19 +65,33 @@ class GameplayRuntimeTests(unittest.TestCase):
             self.assertTrue(scene.hostage.rescued)
             self.assertEqual("win", scene.result)
 
-        boss_scene = self.make_scene(3)
-        boss_scene.player.pos = pygame.Vector2(boss_scene.hostage.pos)
-        boss_scene.handle_collisions()
-        boss_scene.check_objectives()
-        self.assertTrue(boss_scene.hostage.rescued)
-        self.assertIsNone(boss_scene.result)
+        pressure_scene = self.make_scene(3)
+        pressure_scene.player.pos = pygame.Vector2(pressure_scene.hostage.pos)
+        pressure_scene.handle_collisions()
+        self.assertFalse(pressure_scene.hostage.rescued)
+        pressure_scene.defeated_enemies = pressure_scene.level_spec.kill_target
+        pressure_scene.handle_collisions()
+        self.assertTrue(pressure_scene.hostage.rescued)
+        pressure_scene.check_objectives()
+        self.assertEqual("win", pressure_scene.result)
 
-        boss_scene.boss.health = 0
-        boss_scene.check_objectives()
-        self.assertEqual("win", boss_scene.result)
+        for index in (4, 5):
+            boss_scene = self.make_scene(index)
+            boss_scene.player.pos = pygame.Vector2(boss_scene.hostage.pos)
+            boss_scene.handle_collisions()
+            boss_scene.check_objectives()
+            self.assertFalse(boss_scene.hostage.rescued)
+            self.assertIsNone(boss_scene.result)
+
+            boss_scene.boss.health = 0
+            boss_scene.handle_collisions()
+            boss_scene.player.pos = pygame.Vector2(boss_scene.hostage.pos)
+            boss_scene.handle_collisions()
+            boss_scene.check_objectives()
+            self.assertEqual("win", boss_scene.result)
 
     def test_timers_scale_with_delta_time(self):
-        scene = self.make_scene(3)
+        scene = self.make_scene(5)
         initial_time_left = scene.time_left
         initial_spawn_timer = scene.spawn_timer
         initial_primary = scene.boss.primary_timer
@@ -83,7 +101,7 @@ class GameplayRuntimeTests(unittest.TestCase):
         self.assertAlmostEqual(initial_primary - 0.5, scene.boss.primary_timer, places=3)
 
     def test_hostage_stays_inside_world_after_rescue(self):
-        scene = self.make_scene(3)
+        scene = self.make_scene(5)
         scene.hostage.rescued = True
         scene.player.pos = pygame.Vector2(scene.world_rect.left + 18, scene.world_rect.top + 18)
 
@@ -100,6 +118,22 @@ class GameplayRuntimeTests(unittest.TestCase):
         for _ in range(180):
             scene.hostage.update(scene, 1 / 60)
             self.assertTrue(scene.maze.is_walkable_cell(scene.maze.world_to_cell(scene.hostage.pos)))
+
+    def test_energy_shot_spawns_projectile_and_deals_damage(self):
+        scene = self.make_scene(3)
+        enemy = Enemy((scene.player.pos.x + 40, scene.player.pos.y), self.assets, ENEMY_TYPES["grunt"], scene.level_spec.number)
+        scene.enemies.add(enemy)
+
+        self.assertTrue(scene.player.skill.try_cast(scene.player, scene, pygame.Vector2(1, 0)))
+        self.assertEqual(1, len(scene.skill_projectiles))
+        projectile = next(iter(scene.skill_projectiles))
+        projectile.pos = pygame.Vector2(enemy.pos)
+        projectile.rect.center = (round(enemy.pos.x), round(enemy.pos.y))
+        scene.handle_collisions()
+
+        self.assertLess(enemy.health, enemy.max_health)
+        self.assertEqual(0, len(scene.skill_projectiles))
+        self.assertLess(scene.player.skill.energy, scene.player.skill.snapshot().max_energy)
 
     def test_chenny_toggles_invincibility_and_blocks_damage(self):
         game = Game()
@@ -153,6 +187,20 @@ class GameplayRuntimeTests(unittest.TestCase):
         self.assertEqual(GameState.DIALOGUE, game.state)
         self.assertEqual("return_to_menu", game.dialogue_next_action)
 
+    def test_emyeutho_spawns_companion_and_dialogue(self):
+        game = Game()
+        game.state = GameState.PLAYING
+        game.scene = game.create_level_scene(0)
+
+        for char in "emyeutho":
+            game.handle_playing_event(self.make_key_event(char))
+
+        self.assertTrue(game.love_rabbit_enabled)
+        self.assertIsNotNone(game.scene.love_rabbit)
+        self.assertEqual(GameState.DIALOGUE, game.state)
+        self.assertEqual("resume_current_level", game.dialogue_next_action)
+        self.assertEqual("Thỏ tai đỏ", game.current_dialogue().speaker)
+
     def test_invincibility_persists_across_levels_and_resets_on_menu(self):
         game = Game()
         game.invincible_enabled = True
@@ -185,6 +233,18 @@ class GameplayRuntimeTests(unittest.TestCase):
         self.assertEqual(GameState.PLAYING, game.state)
         self.assertIsNot(original_scene, game.scene)
         self.assertEqual(2, game.scene.level_spec.number)
+
+    def test_pressure_level_unlocks_hostage_only_after_required_kills(self):
+        scene = self.make_scene(3)
+        scene.player.pos = pygame.Vector2(scene.hostage.pos)
+        scene.handle_collisions()
+        self.assertFalse(scene.hostage.rescued)
+        self.assertTrue(scene.status_message)
+        self.assertIn("14", scene.status_message)
+
+        scene.defeated_enemies = scene.level_spec.kill_target
+        scene.handle_collisions()
+        self.assertTrue(scene.hostage.rescued)
 
     def test_lose_flow_opens_retryable_game_over(self):
         game = Game()

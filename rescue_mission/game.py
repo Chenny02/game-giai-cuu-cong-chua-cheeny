@@ -117,21 +117,69 @@ def build_dialogue_scripts():
                 aris,
             ),
             DialogueBeat(
-                "TRƯỚC MÀN 4 - ĐỐI ĐẦU",
+                "TRƯỚC MÀN 4 - ÁP LỰC",
                 config.BOSS_NAME,
-                f"Ngươi đã đi quá xa rồi, {config.PLAYER_NAME}. Đây sẽ là nơi ngươi kết thúc.",
+                f"Ngươi đã thấy đường thì sao? Bước tiếp theo chỉ còn là chiến trường thật sự, {config.PLAYER_NAME}.",
                 orion,
             ),
             DialogueBeat(
-                "TRƯỚC MÀN 4 - ĐỐI ĐẦU",
+                "TRƯỚC MÀN 4 - ÁP LỰC",
                 config.PLAYER_NAME,
-                "Không. Đây là nơi ngươi thất bại.",
+                "Cứ mở hết quân bài của ngươi. Ta sẽ xuyên qua từng lớp phòng thủ.",
                 aris,
             ),
             DialogueBeat(
-                "TRƯỚC MÀN 4 - ĐỐI ĐẦU",
+                "TRƯỚC MÀN 4 - ÁP LỰC",
                 config.HOSTAGE_NAME,
                 f"{config.PLAYER_NAME}... em tin anh.",
+                lina,
+            ),
+        ],
+        "level_4_clear": [
+            DialogueBeat(
+                "SAU MÀN 4 - TUYẾN PHÒNG THỦ",
+                config.PLAYER_NAME,
+                "Tuyến canh gác đã vỡ. Nhưng đây mới chỉ là lớp giữa.",
+                aris,
+            ),
+            DialogueBeat(
+                "SAU MÀN 4 - TUYẾN PHÒNG THỦ",
+                config.HOSTAGE_NAME,
+                "Em thấy một cỗ máy khổng lồ đang khóa hành lang phía trước...",
+                lina,
+            ),
+        ],
+        "level_5_clear": [
+            DialogueBeat(
+                "SAU MÀN 5 - MINIBOSS",
+                config.PLAYER_NAME,
+                "AEGIS PRIME đã sập. Cánh cửa cuối đang mở.",
+                aris,
+            ),
+            DialogueBeat(
+                "TRƯỚC MÀN 6 - ORION",
+                config.BOSS_NAME,
+                "Đủ rồi. Tự tay ta sẽ kết thúc ngươi trong đấu trường này.",
+                orion,
+            ),
+        ],
+        "emyeutho": [
+            DialogueBeat(
+                "EASTER EGG",
+                "Thỏ tai đỏ",
+                "anh là thỏ tai đỏ đây",
+                lina,
+            ),
+            DialogueBeat(
+                "EASTER EGG",
+                "Thỏ tai đỏ",
+                "enh yêu em nhiều lắm bé iuu ạ",
+                lina,
+            ),
+            DialogueBeat(
+                "EASTER EGG",
+                "Thỏ tai đỏ",
+                "game này là của chenny và anh cũng vậy hehe",
                 lina,
             ),
         ],
@@ -184,6 +232,7 @@ class Game:
     CHEAT_CODES = {
         "chenny": "toggle_invincibility",
         "rabbit": "force_level_win",
+        "emyeutho": "trigger_love_rabbit",
     }
 
     def __init__(self):
@@ -203,7 +252,7 @@ class Game:
         self.level_specs = build_level_specs()
         self.dialogue_scripts = build_dialogue_scripts()
         self.buttons = [
-            ui.Button(pygame.Rect(430, 340, 360, 86), "BẮT ĐẦU", "Chiến dịch 1-4", True, "primary", "start"),
+            ui.Button(pygame.Rect(430, 340, 360, 86), "BẮT ĐẦU", "Chiến dịch 1-6", True, "primary", "start"),
             ui.Button(pygame.Rect(452, 442, 316, 62), "TIẾP TỤC", "Chưa có lượt lưu", False, "default", "play"),
             ui.Button(pygame.Rect(452, 518, 316, 62), "CHỌN MÀN", "Sẽ mở sau", False, "default", "grid"),
             ui.Button(pygame.Rect(452, 594, 316, 62), "THOÁT", "Rời trò chơi", True, "danger", "exit"),
@@ -243,6 +292,7 @@ class Game:
         self.mouse_pos = (config.SCREEN_WIDTH // 2, config.SCREEN_HEIGHT // 2)
         self.cheat_buffer = ""
         self.invincible_enabled = False
+        self.love_rabbit_enabled = False
 
     def run(self):
         """VĂ²ng láº·p chĂ­nh cá»§a game.
@@ -479,13 +529,13 @@ class Game:
             if self.scene:
                 self.scene.mouse_pos = pygame.Vector2(self.mouse_pos)
             self.scene.draw(self.screen)
-            ui.draw_hud(self.screen, self.assets, self.scene, self.describe_next_upgrade(), self.mouse_pos)
+            ui.draw_gameplay_hud(self.screen, self.assets, self.scene, self.describe_next_upgrade(), self.mouse_pos)
 
         elif self.state == GameState.PAUSED:
             if self.scene:
                 self.scene.mouse_pos = pygame.Vector2(self.mouse_pos)
                 self.scene.draw(self.screen)
-                ui.draw_hud(self.screen, self.assets, self.scene, self.describe_next_upgrade(), self.mouse_pos)
+                ui.draw_gameplay_hud(self.screen, self.assets, self.scene, self.describe_next_upgrade(), self.mouse_pos)
             ui.draw_pause_menu(
                 self.screen,
                 self.assets,
@@ -500,7 +550,7 @@ class Game:
             if self.scene:
                 self.scene.mouse_pos = pygame.Vector2(self.mouse_pos)
             self.scene.draw(self.screen)
-            ui.draw_hud(self.screen, self.assets, self.scene, self.describe_next_upgrade(), self.mouse_pos)
+            ui.draw_gameplay_hud(self.screen, self.assets, self.scene, self.describe_next_upgrade(), self.mouse_pos)
             ui.draw_overlay(
                 self.screen,
                 self.assets,
@@ -514,7 +564,7 @@ class Game:
             if self.scene:
                 self.scene.mouse_pos = pygame.Vector2(self.mouse_pos)
             self.scene.draw(self.screen)
-            ui.draw_hud(self.screen, self.assets, self.scene, self.describe_next_upgrade(), self.mouse_pos)
+            ui.draw_gameplay_hud(self.screen, self.assets, self.scene, self.describe_next_upgrade(), self.mouse_pos)
             ui.draw_game_over(
                 self.screen,
                 self.assets,
@@ -528,7 +578,7 @@ class Game:
             if self.scene:
                 self.scene.mouse_pos = pygame.Vector2(self.mouse_pos)
             self.scene.draw(self.screen)
-            ui.draw_hud(self.screen, self.assets, self.scene, "Chiến dịch đã hoàn tất.", self.mouse_pos)
+            ui.draw_gameplay_hud(self.screen, self.assets, self.scene, "Chiến dịch đã hoàn tất.", self.mouse_pos)
             ui.draw_overlay(
                 self.screen,
                 self.assets,
@@ -682,10 +732,13 @@ class Game:
 
     def apply_cheat_state_to_scene(self, scene):
         scene.player_invincible = self.invincible_enabled
+        if self.love_rabbit_enabled:
+            scene.enable_love_rabbit()
 
     def reset_cheat_state(self):
         self.cheat_buffer = ""
         self.invincible_enabled = False
+        self.love_rabbit_enabled = False
 
     def process_cheat_input(self, event):
         if self.state != GameState.PLAYING or event.type != pygame.KEYDOWN:
@@ -717,11 +770,26 @@ class Game:
             if self.scene.boss:
                 self.scene.boss.health = 0
                 self.scene.boss.dead = True
-            self.scene.result_reason = f"{config.BOSS_NAME} đã bị tiêu diệt và {config.HOSTAGE_NAME} đã an toàn."
+            boss_name = self.scene.boss.display_name if self.scene.boss else config.BOSS_NAME
+            self.scene.result_reason = f"{boss_name} đã bị tiêu diệt và {config.HOSTAGE_NAME} đã an toàn."
         else:
             self.scene.hostage.rescued = True
             self.scene.result_reason = f"{config.HOSTAGE_NAME} đã được {config.PLAYER_NAME} giải cứu."
         self.scene.result = "win"
+
+    def trigger_love_rabbit(self):
+        if not self.scene or self.state != GameState.PLAYING:
+            return
+
+        self.love_rabbit_enabled = True
+        self.scene.enable_love_rabbit()
+        self.audio.play("rescue", volume=0.7)
+        self.open_dialogue(
+            "emyeutho",
+            "resume_current_level",
+            subtitle="Easter egg đã kích hoạt.",
+            footer="Nhấn Enter, Space hoặc chuột trái để quay lại màn chơi.",
+        )
 
     def describe_next_upgrade(self):
         """Giá»¯ láº¡i thĂ´ng tin progression Ä‘á»ƒ cĂ³ thá»ƒ dĂ¹ng láº¡i náº¿u UI cáº§n."""
@@ -735,7 +803,7 @@ class Game:
             return "Không còn nâng cấp."
 
         upgrade = config.upgrade_for_level(next_level)
-        return f"Má»Ÿ khĂ³a: {upgrade.title}"
+        return f"Mở khóa: {upgrade.title}"
 
 
 def main():

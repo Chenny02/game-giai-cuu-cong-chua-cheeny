@@ -31,6 +31,7 @@ class AudioManager:
         self.sounds = {
             "ui_click": self._tone(640, 0.055, 0.28),
             "shoot": self._tone(880, 0.075, 0.2, falloff=True),
+            "skill_cast": self._arpeggio((780, 1040, 1320), 0.15, 0.22),
             "enemy_shoot": self._tone(420, 0.09, 0.18, falloff=True),
             "hit": self._noise_tone(220, 0.07, 0.24),
             "hurt": self._tone(150, 0.18, 0.32, falloff=True),

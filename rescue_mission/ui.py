@@ -543,3 +543,65 @@ def draw_dialogue(surface, assets, title, speaker, text, accent_color, page_inde
 
     footer_surf = assets.font_small.render(footer, True, accent_color)
     surface.blit(footer_surf, (card.x + 30, card.bottom - 34))
+
+
+def draw_gameplay_hud(surface, assets, scene, next_upgrade_text, mouse_pos):
+    header = pygame.Rect(18, 14, 860, 96)
+    draw_glass_panel(surface, header)
+
+    stage_text = assets.font_h2.render(f"Màn {scene.level_spec.number}", True, config.COLOR_TEXT)
+    stage_name = assets.font_small.render(scene.level_spec.title, True, config.COLOR_SUBTEXT)
+    briefing = assets.font_small.render(scene.level_spec.description, True, config.COLOR_SUBTEXT)
+    surface.blit(stage_text, (32, 18))
+    surface.blit(stage_name, (118, 24))
+    surface.blit(briefing, (32, 50))
+
+    draw_health_bar(surface, assets, scene.player.health, scene.player.max_health, pygame.Rect(276, 18, 170, 14), config.PLAYER_NAME)
+    draw_timer_bar(
+        surface,
+        assets,
+        scene.time_left / scene.level_spec.time_limit,
+        pygame.Rect(276, 40, 170, 8),
+        max(0, math.ceil(scene.time_left)),
+    )
+
+    objective = scene.current_objective_text()
+    objective_color = config.COLOR_WARNING if not scene.hostage.rescued else config.COLOR_ACCENT
+    if scene.boss and scene.boss.health > 0 and scene.level_spec.objective_mode == "boss_and_rescue":
+        objective_color = config.COLOR_DANGER
+    objective_text = assets.font_small.render(objective, True, objective_color)
+    surface.blit(objective_text, (470, 20))
+
+    if scene.boss and scene.boss.health > 0:
+        draw_health_bar(surface, assets, scene.boss.health, scene.boss.max_health, pygame.Rect(610, 42, 180, 12), scene.boss.display_name)
+
+    score = assets.font_h2.render(f"Điểm {scene.score}", True, config.COLOR_TEXT)
+    surface.blit(score, (804, 18))
+
+    upgrade = assets.font_small.render(next_upgrade_text, True, config.COLOR_SUBTEXT)
+    surface.blit(upgrade, (470, 64))
+
+    skill_rect = pygame.Rect(18, 102, 280, 54)
+    draw_glass_panel(surface, skill_rect)
+    snapshot = scene.player.skill.snapshot()
+    title = assets.font_small.render(f"{config.PLAYER_SKILL_KEY_LABEL}  {config.PLAYER_SKILL_NAME}", True, config.COLOR_TEXT)
+    state_text = "Sẵn sàng" if snapshot.ready else f"Hồi {snapshot.cooldown_left:.1f}s"
+    status = assets.font_small.render(state_text, True, config.COLOR_SKILL if snapshot.ready else config.COLOR_WARNING)
+    surface.blit(title, (skill_rect.x + 14, skill_rect.y + 8))
+    surface.blit(status, (skill_rect.right - 14 - status.get_width(), skill_rect.y + 8))
+
+    energy_rect = pygame.Rect(skill_rect.x + 14, skill_rect.y + 28, skill_rect.width - 28, 10)
+    pygame.draw.rect(surface, (*config.COLOR_PANEL_ALT, 255), energy_rect, border_radius=8)
+    pygame.draw.rect(surface, (*config.COLOR_SKILL_DIM, 220), energy_rect, width=1, border_radius=8)
+    fill = energy_rect.copy()
+    fill.width = max(6, int(energy_rect.width * snapshot.energy_ratio))
+    pygame.draw.rect(surface, config.COLOR_SKILL, fill, border_radius=8)
+    info = assets.font_small.render(
+        f"Năng lượng {int(snapshot.energy)}/{int(snapshot.max_energy)} | Tốn {config.PLAYER_SKILL_ENERGY_COST}",
+        True,
+        config.COLOR_SUBTEXT,
+    )
+    surface.blit(info, (skill_rect.x + 14, skill_rect.bottom - 16))
+
+    draw_minimap(surface, assets, scene, pygame.Rect(config.SCREEN_WIDTH - 136, 14, 118, 118))
+    draw_crosshair(surface, mouse_pos, scene.player.fire_timer <= 0)
