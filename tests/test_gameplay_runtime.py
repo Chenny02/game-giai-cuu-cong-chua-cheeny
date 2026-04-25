@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest import mock
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
@@ -10,6 +11,14 @@ from rescue_mission.entities import ENEMY_TYPES, Enemy
 from rescue_mission.game import Game
 from rescue_mission.level_system import LevelScene, build_level_specs
 from rescue_mission.states import GameState
+
+
+class FakePressedKeys:
+    def __init__(self, *pressed_keys):
+        self.pressed_keys = set(pressed_keys)
+
+    def __getitem__(self, key):
+        return key in self.pressed_keys
 
 
 class GameplayRuntimeTests(unittest.TestCase):
@@ -99,6 +108,41 @@ class GameplayRuntimeTests(unittest.TestCase):
         self.assertAlmostEqual(initial_time_left - 0.5, scene.time_left, places=3)
         self.assertAlmostEqual(initial_spawn_timer - 0.5, scene.spawn_timer, places=3)
         self.assertAlmostEqual(initial_primary - 0.5, scene.boss.primary_timer, places=3)
+
+    def test_player_can_move_with_arrow_keys(self):
+        scene = self.make_scene(0)
+        start_pos = pygame.Vector2(scene.player.pos)
+
+        with mock.patch(
+            "pygame.key.get_pressed",
+            return_value=FakePressedKeys(pygame.K_RIGHT),
+        ), mock.patch(
+            "pygame.mouse.get_pos",
+            return_value=(round(start_pos.x), round(start_pos.y)),
+        ), mock.patch(
+            "pygame.mouse.get_pressed",
+            return_value=(False, False, False),
+        ):
+            scene.player.update(scene, 1 / 60)
+
+        self.assertGreater(scene.player.pos.x, start_pos.x)
+        self.assertEqual(start_pos.y, scene.player.pos.y)
+
+        scene.player.pos = pygame.Vector2(start_pos)
+        with mock.patch(
+            "pygame.key.get_pressed",
+            return_value=FakePressedKeys(pygame.K_UP),
+        ), mock.patch(
+            "pygame.mouse.get_pos",
+            return_value=(round(start_pos.x), round(start_pos.y)),
+        ), mock.patch(
+            "pygame.mouse.get_pressed",
+            return_value=(False, False, False),
+        ):
+            scene.player.update(scene, 1 / 60)
+
+        self.assertLess(scene.player.pos.y, start_pos.y)
+        self.assertEqual(start_pos.x, scene.player.pos.x)
 
     def test_hostage_stays_inside_world_after_rescue(self):
         scene = self.make_scene(5)
