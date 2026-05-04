@@ -509,6 +509,18 @@ class AssetManager:
             "rabbit_companion": self.load_optional_image("rabbit_easter.png", (76, 100), alpha=True) or make_rabbit_surface((76, 100)),
             "world_bg": self.load_optional_image("bg.png", (config.SCREEN_WIDTH, config.SCREEN_HEIGHT), alpha=False),
         }
+        # Load level/background images from assets/backgrounds/
+        self.level_backgrounds = {}
+        bg_root = self.project_root / "assets" / "backgrounds"
+        if bg_root.exists():
+            for path in sorted(bg_root.glob("*.*")):
+                try:
+                    img = pygame.image.load(str(path)).convert()
+                    fitted = fit_surface_to_canvas(img, (config.SCREEN_WIDTH, config.SCREEN_HEIGHT))
+                    self.level_backgrounds[path.stem.lower()] = fitted
+                except (pygame.error, OSError):
+                    # ignore corrupt images
+                    continue
         self.menu_glow_blue = make_radial_glow((250, 320), (72, 208, 255), alpha_scale=0.72)
         self.menu_glow_purple = make_radial_glow((360, 430), (182, 74, 255), alpha_scale=0.82)
         self.menu_glow_gold = make_radial_glow((250, 330), (255, 194, 76), alpha_scale=0.72)
@@ -773,6 +785,50 @@ class AssetManager:
                 }
 
         return loaded
+
+    def level_background_for(self, level_spec):
+        """Return a prepared background Surface for the given LevelSpec.
+
+        Matching order (first hit):
+          - 'level_{number}' key
+          - boss_profile_key (if present)
+          - any token from hazard_layout
+          - title keywords (slug parts)
+        Falls back to `images['world_bg']` or `world_background`.
+        """
+        if not hasattr(self, "level_backgrounds") or not self.level_backgrounds:
+            return self.images.get("world_bg") or self.world_background
+
+        # candidates in order
+        candidates = []
+        candidates.append(f"level_{level_spec.number}")
+        # also try zero-padded form to match filenames like level_01_...
+        candidates.append(f"level_{level_spec.number:02d}")
+        if getattr(level_spec, "boss_profile_key", None):
+            candidates.append(level_spec.boss_profile_key)
+        for token in getattr(level_spec, "hazard_layout", ()): 
+            candidates.append(token)
+        # title keywords
+        for part in level_spec.title.lower().split():
+            candidates.append(part)
+
+        for key in candidates:
+            if not key:
+                continue
+            key = key.lower()
+            # direct match
+            if key in self.level_backgrounds:
+                print(f"[Assets] matched background key: {key}")
+                return self.level_backgrounds[key]
+            # try looser matches against stored keys (e.g., level_01_shadow_gate)
+            for stored_key, surface in self.level_backgrounds.items():
+                sk = stored_key.lower()
+                if sk.startswith(key) or key.startswith(sk) or key in sk or sk in key:
+                    print(f"[Assets] matched background key: {stored_key} (via {key})")
+                    return surface
+
+        # fallback to a generic world bg if available
+        return self.images.get("world_bg") or self.world_background
 
     def expand_loose_frames(self, entity_name, state_name, frames):
         """Give single-frame placeholder states enough motion for playtests."""

@@ -16,6 +16,7 @@ import pygame
 
 from . import config, ui
 from .audio import AudioManager
+from .audio_manager import AdvancedAudioManager
 from .assets import AssetManager
 from .level_system import LevelScene, build_level_specs
 from .states import GameState
@@ -248,6 +249,7 @@ class Game:
         self.clock = pygame.time.Clock()
 
         self.audio = AudioManager()
+        self.audio_manager = AdvancedAudioManager()
         self.assets = AssetManager()
         self.level_specs = build_level_specs()
         self.dialogue_scripts = build_dialogue_scripts()
@@ -294,12 +296,15 @@ class Game:
         self.cheat_input = ""
         self.invincible_enabled = False
         self.love_rabbit_enabled = False
+        
+        # Play menu music on startup
+        self.audio_manager.play_menu_music()
 
     def run(self):
         """VĂ²ng láº·p chĂ­nh cá»§a game.
 
-        Má»—i frame chá»‰ lĂ m 3 viá»‡c:
-        1. Äá»c input
+        Má»—i frame chá»‰ lĂ m 3 viá»‡c:
+        1. Äá»c input
         2. Update state hiá»‡n táº¡i
         3. Váº½ state hiá»‡n táº¡i
         """
@@ -310,6 +315,7 @@ class Game:
             self.mouse_pos = self.get_logical_mouse_position()
             self.handle_events()
             self.update()
+            self.audio_manager.update()  # Update audio fade-out and music transitions
             self.draw()
 
         pygame.mouse.set_visible(True)
@@ -471,7 +477,10 @@ class Game:
 
     def update(self):
         """Chá»‰ cáº­p nháº­t state hiá»‡n táº¡i; Game khĂ´ng chen vĂ o ná»™i bá»™ combat."""
-
+        # Handle music for MENU state
+        if self.state == GameState.MENU:
+            if not self.audio_manager.current_music_key or self.audio_manager.current_music_key != "menu":
+                self.audio_manager.play_menu_music()
         if self.state == GameState.PLAYING:
             delta_time = self.clock.get_time() / 1000.0
             self.scene.mouse_pos = pygame.Vector2(self.mouse_pos)
@@ -481,7 +490,9 @@ class Game:
                 self.total_score += self.scene.score
                 self.best_score = max(self.best_score, self.total_score)
                 if self.level_index == len(self.level_specs) - 1:
+                    # Last level complete - play victory music
                     self.audio.play("win")
+                    self.audio_manager.play_victory_music()
                     self.open_dialogue(
                         "victory",
                         "return_to_menu",
@@ -501,6 +512,8 @@ class Game:
                 self.total_score += self.scene.score
                 self.best_score = max(self.best_score, self.total_score)
                 self.audio.play("lose")
+                # Play game over music
+                self.audio_manager.play_game_over_music()
                 self.state = GameState.GAME_OVER
 
     def draw(self):
@@ -611,6 +624,8 @@ class Game:
         self.level_index = 0
         self.reset_cheat_state()
         self.scene = self.create_level_scene(self.level_index)
+        # Play level music when starting first level
+        self.audio_manager.play_level_music(self.level_specs[self.level_index])
         self.open_dialogue(
             "intro",
             "resume_current_level",
@@ -627,21 +642,27 @@ class Game:
             return
 
         self.scene = self.create_level_scene(self.level_index)
+        # Play level music for new level
+        self.audio_manager.play_level_music(self.level_specs[self.level_index])
         self.state = GameState.PLAYING
 
     def restart_current_level(self):
         self.scene = self.create_level_scene(self.level_index)
         self.close_cheat_prompt()
+        # Replay level music when restarting
+        self.audio_manager.play_level_music(self.level_specs[self.level_index])
         self.state = GameState.PLAYING
 
     def pause_game(self):
         if self.state == GameState.PLAYING:
             self.audio.play("ui_click", volume=0.6)
+            self.audio_manager.pause_music()  # Pause background music
             self.close_cheat_prompt()
             self.state = GameState.PAUSED
 
     def resume_game(self):
         if self.state == GameState.PAUSED:
+            self.audio_manager.resume_music()  # Resume background music
             self.state = GameState.PLAYING
 
     def return_to_menu(self):
@@ -654,8 +675,8 @@ class Game:
         self.dialogue_footer = ""
         self.dialogue_subtitle = ""
         self.dialogue_next_action = ""
-        self.reset_cheat_state()
-
+        self.reset_cheat_state()        # Play menu music when returning to menu
+        self.audio_manager.play_menu_music()
     def configure_display(self):
         """Táº¡o cá»­a sá»• tháº­t; pháº§n render logic váº«n giá»¯ á»Ÿ Ä‘á»™ phĂ¢n giáº£i cá»‘ Ä‘á»‹nh."""
 

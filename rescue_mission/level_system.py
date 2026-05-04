@@ -657,13 +657,35 @@ class LevelScene:
             offset.x = random.randint(-shake_amount, shake_amount)
             offset.y = random.randint(-shake_amount, shake_amount)
 
-        surface.blit(self.assets.world_background, (0, 0))
-        if self.assets.images["world_bg"]:
-            surface.blit(self.assets.images["world_bg"], (0, 0))
+        # Draw a level-specific background if available, otherwise fall back
+        bg = None
+        try:
+            bg = self.assets.level_background_for(self.level_spec)
+        except Exception:
+            bg = None
+
+        if bg:
+            surface.blit(bg, (0, 0))
+        else:
+            surface.blit(self.assets.world_background, (0, 0))
+            if self.assets.images["world_bg"]:
+                surface.blit(self.assets.images["world_bg"], (0, 0))
+
         surface.blit(self.assets.grid_overlay, (0, 0))
 
         world_layer = pygame.Surface((config.SCREEN_WIDTH, config.SCREEN_HEIGHT), pygame.SRCALPHA)
-        pygame.draw.rect(world_layer, (7, 12, 26), self.world_rect, border_radius=18)
+        # Draw level background into the world layer so it appears inside the play area.
+        try:
+            bg = self.assets.level_background_for(self.level_spec)
+        except Exception:
+            bg = None
+
+        if bg:
+            world_layer.blit(bg, (0, 0))
+
+        # Draw a semi-transparent dark panel over the play area to keep UI readable
+        overlay_color = (7, 12, 26, 220)
+        pygame.draw.rect(world_layer, overlay_color, self.world_rect, border_radius=18)
         pygame.draw.rect(world_layer, config.COLOR_BORDER, self.world_rect, width=2, border_radius=18)
 
         if self.maze:
