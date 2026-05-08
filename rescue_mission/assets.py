@@ -508,6 +508,7 @@ class AssetManager:
             "boss": make_boss_surface((96, 96)),
             "rabbit_companion": self.load_optional_image("rabbit_easter.png", (76, 100), alpha=True) or make_rabbit_surface((76, 100)),
             "world_bg": self.load_optional_image("bg.png", (config.SCREEN_WIDTH, config.SCREEN_HEIGHT), alpha=False),
+            "exit_gate": self.load_optional_image("exit_gate.png", (64, 84), alpha=True),
         }
         # Load level/background images from assets/backgrounds/
         self.level_backgrounds = {}

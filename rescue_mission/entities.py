@@ -543,3 +543,153 @@ class Boss(Actor):
         self.health = max(0, self.health - amount)
         self.flash(5, (255, 255, 255))
         return self.health <= 0
+
+
+# ---------------------------------------------------------------------------
+# Health Pack — rớt từ địch, player chạm vào để hồi máu
+# ---------------------------------------------------------------------------
+
+class HealthPack(pygame.sprite.Sprite):
+    """Gói hồi máu rớt ngẫu nhiên khi địch chết.
+
+    Tự hủy sau ``lifetime`` giây nếu player không lấy.
+    Nhấp nháy 3 giây cuối để cảnh báo sắp biến mất.
+    """
+
+    LIFETIME = 8.0          # Giây tồn tại trên map
+    RADIUS = 11             # Bán kính vòng tròn
+    PICKUP_RADIUS = 18      # Khoảng cách để player lấy được
+
+    def __init__(self, pos, heal_amount):
+        super().__init__()
+        self.pos = pygame.Vector2(pos)
+        self.heal_amount = heal_amount
+        self.lifetime = self.LIFETIME
+        self.pulse = 0.0
+        size = self.RADIUS * 2 + 12
+        self.image = pygame.Surface((size, size), pygame.SRCALPHA)
+        self.rect = self.image.get_rect(center=(round(self.pos.x), round(self.pos.y)))
+
+    def update(self, delta_time):
+        self.lifetime -= delta_time
+        self.pulse = (self.pulse + delta_time * 4.0) % (2 * math.pi)
+        if self.lifetime <= 0:
+            self.kill()
+            return
+        self._rebuild_image()
+
+    def _rebuild_image(self):
+        size = self.RADIUS * 2 + 12
+        self.image = pygame.Surface((size, size), pygame.SRCALPHA)
+        center = size // 2
+
+        # Nhấp nháy nhanh 3 giây cuối
+        if self.lifetime < 3.0 and int(self.lifetime * 6) % 2 == 0:
+            return
+
+        pulse_r = self.RADIUS + int(math.sin(self.pulse) * 2.5)
+        # Hào quang ngoài
+        pygame.draw.circle(self.image, (255, 80, 100, 50), (center, center), pulse_r + 4)
+        # Vòng chính
+        pygame.draw.circle(self.image, (40, 18, 22, 220), (center, center), self.RADIUS)
+        pygame.draw.circle(self.image, (255, 100, 120), (center, center), self.RADIUS, 2)
+        # Dấu thập ở giữa
+        cross_color = (255, 160, 172)
+        pygame.draw.line(self.image, cross_color, (center - 5, center), (center + 5, center), 2)
+        pygame.draw.line(self.image, cross_color, (center, center - 5), (center, center + 5), 2)
+
+        self.rect = self.image.get_rect(center=(round(self.pos.x), round(self.pos.y)))
+
+    def try_pickup(self, player):
+        """Kiểm tra player có trong tầm lấy không. Trả True nếu đã pickup."""
+        if self.pos.distance_to(player.pos) <= self.PICKUP_RADIUS:
+            player.health = min(player.max_health, player.health + self.heal_amount)
+            self.kill()
+            return True
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Floating Text — số điểm nổi lên sau khi hạ địch
+# ---------------------------------------------------------------------------
+
+class FloatingText:
+    """Văn bản nổi lên rồi mờ dần — dùng để hiển thị điểm kill + combo."""
+
+    def __init__(self, pos, text, color=(255, 255, 255), font=None, duration=1.0, rise_speed=38):
+        self.pos = pygame.Vector2(pos)
+        self.text = text
+        self.color = color
+        self.font = font
+        self.duration = duration
+        self.timer = duration
+        self.rise_speed = rise_speed
+
+    def update(self, delta_time):
+        self.timer -= delta_time
+        self.pos.y -= self.rise_speed * delta_time
+
+    @property
+    def alive(self):
+        return self.timer > 0
+
+    def draw(self, surface):
+        if not self.alive or not self.font:
+            return
+        alpha = int(255 * min(1.0, self.timer / self.duration * 1.4))
+        surf = self.font.render(self.text, True, self.color)
+        surf.set_alpha(alpha)
+        surface.blit(surf, (int(self.pos.x) - surf.get_width() // 2, int(self.pos.y)))
+# ---------------------------------------------------------------------------
+# Exit Gate — Cửa thoát hiểm để qua màn sau khi cứu Lina
+# ---------------------------------------------------------------------------
+
+class ExitGate(Actor):
+    def __init__(self, pos, assets):
+        super().__init__(pos)
+        self.set_hitbox(48, 64)
+        self.pulse = 0.0
+        self.portal_image = assets.images.get("exit_gate")
+        if self.portal_image:
+            # Đảm bảo xóa bỏ phông nền đen nếu có dính vào
+            self.portal_image.set_colorkey((0, 0, 0))
+        self._rebuild_image(False)
+
+    def update(self, scene, delta_time):
+        self.pulse = (self.pulse + delta_time * 5.0) % (math.pi * 2)
+        self._rebuild_image(scene.hostage.rescued)
+        self.update_visual()
+
+    def _rebuild_image(self, active):
+        if not self.portal_image:
+            # Fallback nếu không có ảnh
+            size = 64
+            self.image = pygame.Surface((size, size), pygame.SRCALPHA)
+            center = size // 2
+            main_color = (100, 255, 150) if active else (120, 120, 120)
+            glow_alpha = 40 + int(math.sin(self.pulse) * 15) if active else 20
+            pygame.draw.circle(self.image, (*main_color, glow_alpha), (center, center), 28)
+            pygame.draw.rect(self.image, (30, 30, 40, 230), (center - 14, center - 20, 28, 40), border_radius=6)
+            pygame.draw.rect(self.image, main_color, (center - 14, center - 20, 28, 40), width=3, border_radius=6)
+            self.base_image = self.image
+            return
+
+        # Sử dụng ảnh portal đã load
+        main_color = (100, 255, 150) if active else (80, 80, 80)
+        glow_alpha = 30 + int(math.sin(self.pulse) * 20) if active else 0
+        
+        # Tạo surface mới để kết hợp ảnh và hiệu ứng glow
+        w, h = self.portal_image.get_size()
+        canvas = pygame.Surface((w + 20, h + 20), pygame.SRCALPHA)
+        center_x, center_y = canvas.get_width() // 2, canvas.get_height() // 2
+        
+        if active:
+            # Hào quang xanh xung quanh portal
+            pygame.draw.ellipse(canvas, (*main_color, glow_alpha), (5, 5, w + 10, h + 10))
+            pygame.draw.ellipse(canvas, (*main_color, glow_alpha + 15), (10, 10, w, h), width=2)
+        
+        # Vẽ ảnh portal vào giữa
+        img = self.portal_image if active else tint_surface(self.portal_image, (40, 40, 40), alpha=160)
+        canvas.blit(img, (10, 10))
+        
+        self.base_image = canvas

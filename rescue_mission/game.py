@@ -1,4 +1,4 @@
-﻿"""Game bootstrap vĂ  state machine tá»•ng.
+"""Game bootstrap vĂ  state machine tá»•ng.
 
 Ă tÆ°á»Ÿng kiáº¿n trĂºc:
 - `Game` chá»‰ Ä‘iá»u phá»‘i tráº¡ng thĂ¡i lá»›n cá»§a á»©ng dá»¥ng.
@@ -20,6 +20,7 @@ from .audio_manager import AdvancedAudioManager
 from .assets import AssetManager
 from .level_system import LevelScene, build_level_specs
 from .states import GameState
+from .upgrades import apply_buffs_to_stats, pick_three_buffs
 
 
 @dataclass(frozen=True)
@@ -255,8 +256,8 @@ class Game:
         self.dialogue_scripts = build_dialogue_scripts()
         self.buttons = [
             ui.Button(pygame.Rect(430, 340, 360, 86), "BẮT ĐẦU", "Chiến dịch 1-6", True, "primary", "start"),
-            ui.Button(pygame.Rect(452, 442, 316, 62), "TIẾP TỤC", "Chưa có lượt lưu", False, "default", "play"),
-            ui.Button(pygame.Rect(452, 518, 316, 62), "CHỌN MÀN", "Sẽ mở sau", False, "default", "grid"),
+            ui.Button(pygame.Rect(452, 442, 316, 62), "HỒ SƠ ĐẶC VỤ", "Thông số Aris", True, "default", "gear"),
+            ui.Button(pygame.Rect(452, 518, 316, 62), "CHỌN MÀN", "Tùy chọn chiến trường", True, "default", "grid"),
             ui.Button(pygame.Rect(452, 594, 316, 62), "THOÁT", "Rời trò chơi", True, "danger", "exit"),
         ]
         self.pause_buttons = [
@@ -296,6 +297,10 @@ class Game:
         self.cheat_input = ""
         self.invincible_enabled = False
         self.love_rabbit_enabled = False
+
+        # Upgrade system
+        self.accumulated_buffs = []     # List[UpgradeBuff] đã chọn
+        self.pending_upgrade_choices = []  # 3 buff đang hiển thị để chọn
         
         # Play menu music on startup
         self.audio_manager.play_menu_music()
@@ -358,6 +363,12 @@ class Game:
                 self.handle_pause_event(event)
             elif self.state == GameState.GAME_OVER:
                 self.handle_game_over_event(event)
+            elif self.state == GameState.UPGRADE_PICK:
+                self.handle_upgrade_event(event)
+            elif self.state == GameState.PROFILE:
+                self.handle_profile_event(event)
+            elif self.state == GameState.LEVEL_PICK:
+                self.handle_level_pick_event(event)
             else:
                 self.handle_overlay_event(event)
 
@@ -369,7 +380,13 @@ class Game:
         if self.buttons[0].hovered(mouse_pos):
             self.audio.play("ui_click")
             self.start_new_campaign()
-        elif len(self.buttons) > 3 and self.buttons[3].hovered(mouse_pos):
+        elif self.buttons[1].hovered(mouse_pos):
+            self.audio.play("ui_click")
+            self.state = GameState.PROFILE
+        elif self.buttons[2].hovered(mouse_pos):
+            self.audio.play("ui_click")
+            self.state = GameState.LEVEL_PICK
+        elif self.buttons[3].hovered(mouse_pos):
             self.audio.play("ui_click")
             self.running = False
 
@@ -465,6 +482,57 @@ class Game:
             self.audio.play("ui_click", volume=0.5)
             self.advance_dialogue()
 
+    def handle_upgrade_event(self, event):
+        if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
+            return
+
+        card_width = 260
+        card_height = 340
+        gap = 40
+        total_width = len(self.pending_upgrade_choices) * card_width + (len(self.pending_upgrade_choices) - 1) * gap
+        start_x = config.SCREEN_WIDTH // 2 - total_width // 2
+        y = 200
+
+        for i, buff in enumerate(self.pending_upgrade_choices):
+            rect = pygame.Rect(start_x + i * (card_width + gap), y, card_width, card_height)
+            if rect.collidepoint(self.mouse_pos):
+                self.audio.play("ui_click")
+                self.accumulated_buffs.append(buff)
+                self.begin_next_level()
+                return
+
+    def handle_profile_event(self, event):
+        if event.type == pygame.KEYDOWN or (event.type == pygame.MOUSEBUTTONDOWN and event.button == 1):
+            self.state = GameState.MENU
+
+    def handle_level_pick_event(self, event):
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            self.state = GameState.MENU
+            return
+
+        if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
+            return
+
+        cols = 3
+        card_w, card_h = 320, 160
+        gap_x, gap_y = 30, 30
+        total_w = cols * card_w + (cols - 1) * gap_x
+        start_x = config.SCREEN_WIDTH // 2 - total_w // 2
+        start_y = 160
+
+        for i, spec in enumerate(self.level_specs):
+            r, c = divmod(i, cols)
+            rect = pygame.Rect(start_x + c * (card_w + gap_x), start_y + r * (card_h + gap_y), card_w, card_h)
+            if rect.collidepoint(self.mouse_pos):
+                self.audio.play("ui_click")
+                self.level_index = i
+                self.total_score = 0
+                self.reset_cheat_state()
+                self.scene = self.create_level_scene(self.level_index)
+                self.audio_manager.play_level_music(self.level_specs[self.level_index])
+                self.state = GameState.PLAYING
+                return
+
     def handle_overlay_event(self, event):
         # Sau mĂ n hoáº·c khi thua, báº¥t ká»³ phĂ­m/chuá»™t Ä‘á»u lĂ  má»™t xĂ¡c nháº­n há»£p lĂ½.
         if event.type not in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
@@ -503,7 +571,7 @@ class Game:
                     self.audio.play("rescue")
                     self.open_dialogue(
                         f"level_{self.level_index + 1}_clear",
-                        "next_level",
+                        "open_upgrade_pick",
                         subtitle=self.scene.result_reason,
                         footer="Nhấn Enter, Space hoặc chuột trái để tiếp tục.",
                     )
@@ -573,6 +641,18 @@ class Game:
                 self.fullscreen,
             )
 
+        elif self.state == GameState.UPGRADE_PICK:
+            if self.scene:
+                self.scene.draw(self.screen)
+            ui.draw_upgrade_screen(
+                self.screen,
+                self.assets,
+                self.pending_upgrade_choices,
+                self.mouse_pos,
+                self.level_index,
+                self.accumulated_buffs,
+            )
+
         elif self.state == GameState.LEVEL_COMPLETE:
             if self.scene:
                 self.scene.mouse_pos = pygame.Vector2(self.mouse_pos)
@@ -586,6 +666,13 @@ class Game:
                 "Nhấn phím bất kỳ để qua màn.",
                 config.COLOR_ACCENT,
             )
+
+        elif self.state == GameState.PROFILE:
+            stats = config.player_stats_for_level(1)
+            ui.draw_agent_profile(self.screen, self.assets, stats, self.best_score, self.mouse_pos)
+
+        elif self.state == GameState.LEVEL_PICK:
+            ui.draw_level_selection(self.screen, self.assets, self.level_specs, self.mouse_pos)
 
         elif self.state == GameState.GAME_OVER:
             if self.scene:
@@ -759,13 +846,34 @@ class Game:
             self.state = GameState.PLAYING
         elif action == "next_level":
             self.begin_next_level()
+        elif action == "open_upgrade_pick":
+            self.open_upgrade_pick()
         else:
             self.return_to_menu()
 
+    def open_upgrade_pick(self):
+        """Mở màn hình chọn buff sau khi đọc xong dialogue thắng màn."""
+        already_keys = [b.key for b in self.accumulated_buffs]
+        self.pending_upgrade_choices = pick_three_buffs(already_keys)
+        self.state = GameState.UPGRADE_PICK
+
     def create_level_scene(self, level_index):
-        scene = LevelScene(self.assets, self.level_specs[level_index])
+        base_stats = config.player_stats_for_level(self.level_specs[level_index].number)
+        # Áp dụng accumulated buffs lên base stats
+        if self.accumulated_buffs:
+            buffed_stats = apply_buffs_to_stats(base_stats, self.accumulated_buffs, config)
+        else:
+            buffed_stats = base_stats
+        scene = LevelScene(self.assets, self.level_specs[level_index], player_stats_override=buffed_stats)
         scene.audio = self.audio
         self.apply_cheat_state_to_scene(scene)
+        # Áp dụng buff dash_cooldown vào player sau khi tạo scene
+        dash_delta = sum(b.stat_delta.get("dash_cooldown", 0) for b in self.accumulated_buffs)
+        if dash_delta != 0:
+            scene.player.dash_cooldown_base = max(0.3, config.PLAYER_DASH_COOLDOWN + dash_delta)
+        energy_delta = sum(b.stat_delta.get("energy_regen", 0) for b in self.accumulated_buffs)
+        if energy_delta != 0:
+            scene.player.skill.energy_regen_bonus = energy_delta
         return scene
 
     def apply_cheat_state_to_scene(self, scene):
@@ -777,6 +885,8 @@ class Game:
         self.close_cheat_prompt()
         self.invincible_enabled = False
         self.love_rabbit_enabled = False
+        self.accumulated_buffs = []
+        self.pending_upgrade_choices = []
 
     def open_cheat_prompt(self):
         if self.state != GameState.PLAYING:

@@ -81,7 +81,6 @@ class AudioManager:
             wave = math.sin(2 * math.pi * frequency * t)
             samples.append(int((wave * 0.45 + noise * 0.55) * volume * envelope * 32767))
         return pygame.mixer.Sound(buffer=samples.tobytes())
-
     def _arpeggio(self, frequencies, duration, volume):
         sample_rate = pygame.mixer.get_init()[0]
         total = max(1, int(sample_rate * duration))

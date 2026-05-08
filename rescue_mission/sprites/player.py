@@ -73,6 +73,14 @@ class Player(Actor):
         self.skill = PlayerSkillController()
         self.skill_pressed_last_frame = False
 
+        # Dash state
+        self.dash_timer = 0.0         # Thời gian dash còn lại
+        self.dash_cooldown = 0.0      # Cooldown sau khi dash
+        self.dash_direction = pygame.Vector2(1, 0)
+        self.is_dashing = False
+        self.dash_pressed_last_frame = False
+        self.afterimage_timer = 0.0   # Timer để spawn afterimage theo định kỳ
+
         folder_frames = assets.animation_frames.get("player", {})
         directional_frames = assets.directional_animation_frames.get("player", {})
         character_sheet = assets.sprite_sheets.get("character")
@@ -97,7 +105,36 @@ class Player(Actor):
             input_vector = input_vector.normalize()
             self.last_move_direction = pygame.Vector2(input_vector)
 
-        self.move(input_vector * self.stats.move_speed * delta_time * config.FPS, scene)
+        # ---- Dash logic ----
+        self.dash_cooldown = max(0.0, self.dash_cooldown - delta_time)
+        dash_key = keys[pygame.K_z]
+        if dash_key and not self.dash_pressed_last_frame and self.dash_cooldown <= 0 and not self.is_dashing:
+            self.is_dashing = True
+            self.dash_timer = config.PLAYER_DASH_DURATION
+            self.dash_direction = pygame.Vector2(self.last_move_direction)
+            self.afterimage_timer = 0.0
+            if getattr(scene, "audio", None):
+                scene.audio.play("ui_click", volume=0.45)
+        self.dash_pressed_last_frame = bool(dash_key)
+
+        if self.is_dashing:
+            self.dash_timer -= delta_time
+            self.afterimage_timer -= delta_time
+            if self.afterimage_timer <= 0:
+                # Spawn afterimage: lưu snapshot image + vị trí vào scene
+                if hasattr(scene, "dash_afterimages"):
+                    scene.dash_afterimages.append({
+                        "image": self.image.copy(),
+                        "pos": pygame.Vector2(self.pos),
+                        "alpha": 180,
+                    })
+                self.afterimage_timer = config.PLAYER_DASH_DURATION / config.PLAYER_DASH_AFTERIMAGE_COUNT
+            self.move(self.dash_direction * config.PLAYER_DASH_SPEED * delta_time * config.FPS, scene)
+            if self.dash_timer <= 0:
+                self.is_dashing = False
+                self.dash_cooldown = config.PLAYER_DASH_COOLDOWN
+        else:
+            self.move(input_vector * self.stats.move_speed * delta_time * config.FPS, scene)
         self.fire_timer = max(0.0, self.fire_timer - delta_time)
         self.invulnerable_timer = max(0.0, self.invulnerable_timer - delta_time)
         self.shoot_anim_timer = max(0.0, self.shoot_anim_timer - delta_time)
@@ -152,7 +189,12 @@ class Player(Actor):
             self.animation_manager.update(delta_time)
             self.set_base_image(self.animation_manager.get_image(angle=angle, flip_x=self.flip_x))
 
-        if self.invulnerable_timer > 0 and int(self.invulnerable_timer * config.FPS) % 4 < 2:
+
+        if self.is_dashing:
+            # Dash: bất tử + flash xanh nhạt nhanh để nhận diện
+            self.flash(2, (120, 220, 255))
+            self.invulnerable_timer = max(self.invulnerable_timer, 0.05)
+        elif self.invulnerable_timer > 0 and int(self.invulnerable_timer * config.FPS) % 4 < 2:
             self.flash(3, (155, 228, 255))
 
         self.update_visual()
@@ -192,8 +234,20 @@ class Player(Actor):
         if getattr(scene, "audio", None):
             scene.audio.play("shoot", volume=0.75)
 
+    def dash_snapshot(self):
+        """Trả về dict dữ liệu để UI vẽ dash indicator."""
+        return {
+            "is_dashing": self.is_dashing,
+            "cooldown_ratio": 1.0 - min(1.0, self.dash_cooldown / config.PLAYER_DASH_COOLDOWN),
+            "ready": self.dash_cooldown <= 0 and not self.is_dashing,
+            "cooldown_left": self.dash_cooldown,
+        }
+
     def take_damage(self, amount, scene=None):
         if scene is not None and getattr(scene, "player_invincible", False):
+            return False
+        # Bất tử trong khi dash
+        if self.is_dashing and config.PLAYER_DASH_IFRAMES:
             return False
         if self.invulnerable_timer > 0:
             return False

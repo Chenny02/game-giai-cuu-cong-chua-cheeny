@@ -603,6 +603,30 @@ def draw_gameplay_hud(surface, assets, scene, next_upgrade_text, mouse_pos):
     )
     surface.blit(info, (skill_rect.x + 14, skill_rect.bottom - 16))
 
+    # ---- Dash indicator ----
+    dash_rect = pygame.Rect(18, skill_rect.bottom + 6, 280, 36)
+    draw_glass_panel(surface, dash_rect)
+    dash = scene.player.dash_snapshot()
+    dash_title = assets.font_small.render(f"{config.PLAYER_DASH_KEY_LABEL}  Dash", True, config.COLOR_TEXT)
+    if dash["is_dashing"]:
+        dash_state_text = "Dash!"
+        dash_color = (120, 220, 255)
+    elif dash["ready"]:
+        dash_state_text = "Sẵn sàng"
+        dash_color = config.COLOR_ACCENT
+    else:
+        dash_state_text = f"Hồi {dash['cooldown_left']:.1f}s"
+        dash_color = config.COLOR_WARNING
+    dash_status = assets.font_small.render(dash_state_text, True, dash_color)
+    surface.blit(dash_title, (dash_rect.x + 14, dash_rect.y + 5))
+    surface.blit(dash_status, (dash_rect.right - 14 - dash_status.get_width(), dash_rect.y + 5))
+    dash_bar_rect = pygame.Rect(dash_rect.x + 14, dash_rect.y + 22, dash_rect.width - 28, 7)
+    pygame.draw.rect(surface, (*config.COLOR_PANEL_ALT, 255), dash_bar_rect, border_radius=6)
+    pygame.draw.rect(surface, (40, 100, 130, 200), dash_bar_rect, width=1, border_radius=6)
+    dash_fill = dash_bar_rect.copy()
+    dash_fill.width = max(4, int(dash_bar_rect.width * dash["cooldown_ratio"]))
+    pygame.draw.rect(surface, (100, 210, 255) if dash["ready"] or dash["is_dashing"] else (60, 140, 180), dash_fill, border_radius=6)
+
     draw_minimap(surface, assets, scene, pygame.Rect(config.SCREEN_WIDTH - 136, 14, 118, 118))
     draw_crosshair(surface, mouse_pos, scene.player.fire_timer <= 0)
 
@@ -622,3 +646,147 @@ def draw_cheat_prompt(surface, assets, cheat_input):
     value = cheat_input if cheat_input else "_"
     text = assets.font_small.render(f"> {value}", True, config.COLOR_TEXT)
     surface.blit(text, (input_rect.x + 10, input_rect.y + 4))
+
+def draw_upgrade_screen(surface, assets, choices, mouse_pos, level_index, accumulated_buffs):
+    veil = pygame.Surface((config.SCREEN_WIDTH, config.SCREEN_HEIGHT), pygame.SRCALPHA)
+    veil.fill((4, 8, 18, 220))
+    surface.blit(veil, (0, 0))
+
+    title = assets.font_h1.render("CHỌN PHẦN THƯỞNG NÂNG CẤP", True, config.COLOR_WARNING)
+    surface.blit(title, (config.SCREEN_WIDTH // 2 - title.get_width() // 2, 100))
+
+    card_width = 260
+    card_height = 340
+    gap = 40
+    total_width = len(choices) * card_width + (len(choices) - 1) * gap
+    start_x = config.SCREEN_WIDTH // 2 - total_width // 2
+    y = 200
+
+    for i, buff in enumerate(choices):
+        rect = pygame.Rect(start_x + i * (card_width + gap), y, card_width, card_height)
+        hovered = rect.collidepoint(mouse_pos)
+        
+        draw_glass_panel(surface, rect)
+        border_color = config.COLOR_ACCENT if hovered else config.COLOR_BORDER
+        pygame.draw.rect(surface, border_color, rect, width=2, border_radius=18)
+
+        pygame.draw.circle(surface, border_color, (rect.centerx, rect.y + 70), 36, 2)
+        icon_text = assets.font_h2.render("+" if "up" in buff.key else "-", True, config.COLOR_TEXT)
+        surface.blit(icon_text, (rect.centerx - icon_text.get_width() // 2, rect.y + 55))
+        
+        title_surf = assets.font_h2.render(buff.title, True, config.COLOR_TEXT)
+        surface.blit(title_surf, (rect.centerx - title_surf.get_width() // 2, rect.y + 130))
+
+        desc_lines = wrap_text(assets.font_small, buff.description, card_width - 30)
+        desc_y = rect.y + 180
+        for line in desc_lines:
+            line_surf = assets.font_small.render(line, True, config.COLOR_SUBTEXT)
+            surface.blit(line_surf, (rect.centerx - line_surf.get_width() // 2, desc_y))
+            desc_y += 24
+
+        if hovered:
+            pygame.draw.rect(surface, (*config.COLOR_ACCENT, 30), rect, border_radius=18)
+
+
+def draw_agent_profile(surface, assets, player_stats, best_score, mouse_pos):
+    veil = pygame.Surface((config.SCREEN_WIDTH, config.SCREEN_HEIGHT), pygame.SRCALPHA)
+    veil.fill((4, 8, 18, 235))
+    surface.blit(veil, (0, 0))
+
+    # Main Card
+    card = pygame.Rect(100, 100, 1080, 520)
+    draw_glass_panel(surface, card)
+    pygame.draw.rect(surface, config.COLOR_ACCENT, card.inflate(-16, -16), width=2, border_radius=18)
+
+    # Portrait Section
+    portrait_area = pygame.Rect(card.x + 40, card.y + 40, 360, 440)
+    pygame.draw.rect(surface, (10, 20, 40), portrait_area, border_radius=12)
+    pygame.draw.rect(surface, config.COLOR_BORDER, portrait_area, width=1, border_radius=12)
+    
+    # Placeholder for big portrait - using menu portrait
+    portrait = pygame.transform.smoothscale(assets.menu_player_portrait, (340, 420))
+    surface.blit(portrait, (portrait_area.x + 10, portrait_area.y + 10))
+
+    # Info Section
+    info_x = portrait_area.right + 60
+    title_surf = assets.font_h1.render(f"HỒ SƠ ĐẶC VỤ: {config.PLAYER_NAME.upper()}", True, config.COLOR_ACCENT)
+    surface.blit(title_surf, (info_x, card.y + 50))
+    
+    subtitle = assets.font_h2.render("Đơn vị: Shadow Response Team", True, config.COLOR_SUBTEXT)
+    surface.blit(subtitle, (info_x, card.y + 105))
+
+    # Stats Grid
+    stats_y = card.y + 180
+    stats = [
+        ("SINH LỰC (HP)", f"{int(player_stats.max_health)}"),
+        ("SÁT THƯƠNG ĐẠN", f"{int(player_stats.bullet_damage)}"),
+        ("TỐC ĐỘ DI CHUYỂN", f"{int(player_stats.move_speed)}"),
+        ("TỐC ĐỘ BẮN", f"{round(config.FPS / player_stats.fire_interval, 1)} viên/s"),
+        ("KỶ LỤC ĐIỂM", f"{best_score}"),
+    ]
+
+    for label, val in stats:
+        # Row background
+        row_rect = pygame.Rect(info_x, stats_y, 600, 44)
+        pygame.draw.rect(surface, (15, 25, 45), row_rect, border_radius=8)
+        
+        l_surf = assets.font_body.render(label, True, config.COLOR_SUBTEXT)
+        v_surf = assets.font_h2.render(val, True, config.COLOR_TEXT)
+        
+        surface.blit(l_surf, (row_rect.x + 15, row_rect.y + 8))
+        surface.blit(v_surf, (row_rect.right - 15 - v_surf.get_width(), row_rect.y + 4))
+        
+        stats_y += 56
+
+    # Decorations
+    footer = assets.font_small.render("Trình trạng: Sẵn sàng chiến đấu | Nhấn ESC để quay lại", True, config.COLOR_ACCENT)
+    surface.blit(footer, (info_x, card.bottom - 60))
+
+
+def draw_level_selection(surface, assets, level_specs, mouse_pos):
+    veil = pygame.Surface((config.SCREEN_WIDTH, config.SCREEN_HEIGHT), pygame.SRCALPHA)
+    veil.fill((4, 8, 18, 230))
+    surface.blit(veil, (0, 0))
+
+    title = assets.font_h1.render("CHỌN CHIẾN TRƯỜNG", True, config.COLOR_WARNING)
+    surface.blit(title, (config.SCREEN_WIDTH // 2 - title.get_width() // 2, 60))
+
+    cols = 3
+    card_w, card_h = 320, 160
+    gap_x, gap_y = 30, 30
+    
+    total_w = cols * card_w + (cols - 1) * gap_x
+    start_x = config.SCREEN_WIDTH // 2 - total_w // 2
+    start_y = 160
+
+    for i, spec in enumerate(level_specs):
+        r, c = divmod(i, cols)
+        rect = pygame.Rect(start_x + c * (card_w + gap_x), start_y + r * (card_h + gap_y), card_w, card_h)
+        hovered = rect.collidepoint(mouse_pos)
+
+        draw_glass_panel(surface, rect)
+        border_color = config.COLOR_WARNING if hovered else config.COLOR_BORDER
+        pygame.draw.rect(surface, border_color, rect, width=2, border_radius=16)
+
+        # Level Number
+        num_surf = assets.font_h2.render(f"MÀN {spec.number}", True, config.COLOR_WARNING)
+        surface.blit(num_surf, (rect.x + 20, rect.y + 15))
+
+        # Title
+        t_surf = assets.font_body.render(spec.title, True, config.COLOR_TEXT)
+        surface.blit(t_surf, (rect.x + 20, rect.y + 50))
+
+        # Description
+        desc_lines = wrap_text(assets.font_small, spec.description, rect.width - 40)
+        for j, line in enumerate(desc_lines[:2]):
+            d_surf = assets.font_small.render(line, True, config.COLOR_SUBTEXT)
+            surface.blit(d_surf, (rect.x + 20, rect.y + 85 + j * 20))
+
+        if hovered:
+            pygame.draw.rect(surface, (*config.COLOR_WARNING, 30), rect, border_radius=16)
+            play_text = assets.font_small.render("CLICK ĐỂ BẮT ĐẦU", True, config.COLOR_WARNING)
+            surface.blit(play_text, (rect.right - 20 - play_text.get_width(), rect.bottom - 25))
+
+    # Back hint
+    back_hint = assets.font_small.render("Nhấn ESC để quay lại Menu", True, config.COLOR_SUBTEXT)
+    surface.blit(back_hint, (config.SCREEN_WIDTH // 2 - back_hint.get_width() // 2, config.SCREEN_HEIGHT - 60))

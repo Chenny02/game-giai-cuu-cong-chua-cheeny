@@ -22,14 +22,21 @@ TITLE = f"{GAME_TITLE_MAIN}: {GAME_TITLE_SUBTITLE}"
 PLAYER_NAME = "Aris"
 HOSTAGE_NAME = "Lina"
 BOSS_NAME = "ORION"
+
 LEVEL_COMPLETE_DELAY = 1800
 
-PLAYER_BASE_HEALTH = 110
+PLAYER_BASE_HEALTH = 200
 PLAYER_BASE_SPEED = 4.0
 PLAYER_BASE_FIRE_INTERVAL = 13
 PLAYER_BASE_BULLET_SPEED = 12.5
 PLAYER_BASE_BULLET_DAMAGE = 18
 PLAYER_IFRAMES = 18
+
+PLAYER_DASH_SPEED = 18.0        # Tốc độ dash (pixel/frame)
+PLAYER_DASH_DURATION = 0.12     # Thời gian dash (giây)
+PLAYER_DASH_COOLDOWN = 0.9      # Cooldown sau mỗi lần dash (giây)
+PLAYER_DASH_IFRAMES = True      # Bất tử trong khi dash
+PLAYER_DASH_AFTERIMAGE_COUNT = 5  # Số bóng afterimage để lại
 
 PLAYER_SKILL_NAME = "Energy Shot"
 PLAYER_SKILL_KEY_LABEL = "Q"
@@ -42,9 +49,9 @@ PLAYER_SKILL_ENERGY_COST = 35
 PLAYER_SKILL_ENERGY_REGEN = 17
 PLAYER_SKILL_KNOCKBACK = 18
 
-TILE_SIZE = 24
-MAZE_WIDTH = 45
-MAZE_HEIGHT = 25
+TILE_SIZE = 40
+MAZE_WIDTH = 27
+MAZE_HEIGHT = 15
 
 BOSS_HEALTH = 420
 
@@ -283,7 +290,7 @@ def player_stats_for_level(level_number: int) -> PlayerStats:
         fire_interval=max(6, PLAYER_BASE_FIRE_INTERVAL - (level_number - 1)),
         bullet_speed=PLAYER_BASE_BULLET_SPEED + 0.55 * (level_number - 1),
         bullet_damage=PLAYER_BASE_BULLET_DAMAGE + 3 * (level_number - 1),
-        max_health=PLAYER_BASE_HEALTH + 10 * (level_number - 1),
+        max_health=PLAYER_BASE_HEALTH + 20 * (level_number - 1),
     )
 
 
@@ -297,3 +304,6 @@ def upgrade_for_level(level_number: int) -> UpgradeInfo:
         6: UpgradeInfo("Giao tranh cuối", "Đấu trường boss hoàn chỉnh."),
     }
     return upgrades[level_number]
+
+
+PLAYER_DASH_KEY_LABEL = "Z"
